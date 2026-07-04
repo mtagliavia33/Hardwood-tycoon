@@ -1,21 +1,41 @@
 name: Deploy to GitHub Pages
 
+# The github-pages environment was auto-created with a deployment branch
+# policy that only allows the gh-pages branch, and that policy can't be
+# changed from a workflow. So deploys run from the gh-pages ref: every push
+# to main mirrors main -> gh-pages, then dispatches this same workflow on
+# gh-pages, where the deploy job is allowed to run.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
+  mirror:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Mirror main to gh-pages
+        run: git push --force origin HEAD:gh-pages
+      - name: Dispatch deploy on gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref gh-pages --repo ${{ github.repository }}
+
   deploy:
+    if: github.ref == 'refs/heads/gh-pages'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
