@@ -1,0 +1,24 @@
+name: Diagnose Pages
+on:
+  workflow_dispatch:
+
+permissions:
+  pages: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pages API config
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api repos/${{ github.repository }}/pages || echo "pages api failed"
+      - name: Fetch site URLs
+        run: |
+          for u in \
+            https://mtagliavia33.github.io/hardwood-tycoon/ \
+            https://mtagliavia33.github.io/Hardwood-tycoon/ \
+            https://mtagliavia33.github.io/ ; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$u")
+            echo "$code  $u"
+          done
