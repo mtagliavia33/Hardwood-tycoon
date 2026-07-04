@@ -12,6 +12,6 @@ An idle basketball tycoon game in a single HTML file. Build a hoops empire from 
 
 ## Play
 
-▶ **[Play in your browser](https://mtagliavia33.github.io/hardwood-tycoon/)**
+▶ **[Play in your browser](https://mtagliavia33.github.io/Hardwood-tycoon/)**
 
 Or download `index.html` and open it locally — the whole game is one self-contained file, no build or server needed.
