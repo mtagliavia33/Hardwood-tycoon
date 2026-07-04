@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Hardwood Tycoon — Basketball Idle Empire</title>
+<meta name="description" content="Idle tycoon game: build a basketball business empire across three worlds — Streetball City, the Global Circuit, and the Lunar League. Tap, invest, prestige for championship rings." />
+<meta name="theme-color" content="#0b0f19" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Hardwood Tycoon" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E" />
+<style>
+:root{
+  --bg:#0b0f19; --bg2:#121826; --panel:#161d2e; --panel2:#1c2438;
+  --line:#26304a; --text:#e8edf7; --dim:#8a97b4; --accent:#ff6b35;
+  --good:#2ecc71; --warn:#f1c40f; --bad:#e74c3c; --gold:#ffd166;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 500px at 85% -10%, rgba(255,107,53,.07), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(46,110,204,.08), transparent 55%),
+    var(--bg);
+  background-attachment:fixed;
+  color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased; line-height:1.45;
+  -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+}
+#app{max-width:860px;margin:0 auto;min-height:100vh;padding-bottom:60px}
+button{font-family:inherit;cursor:pointer}
+h1,h2,h3{margin:0 0 .5rem}
+.dim{color:var(--dim);font-size:.85rem}
+
+/* ---------- header ---------- */
+.top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg2) 92%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px 16px}
+.brand{font-size:1.1rem;font-weight:800;letter-spacing:-.5px;display:flex;align-items:center;gap:8px;justify-content:space-between}
+.brand b{color:var(--accent)}
+.brand a{color:var(--dim);font-size:.75rem;font-weight:600;text-decoration:none;border:1px solid var(--line);
+  padding:4px 10px;border-radius:8px;transition:.13s}
+.brand a:hover{color:var(--text);border-color:var(--accent)}
+.money{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:4px}
+.cash{font-size:1.9rem;font-weight:800;color:var(--good);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.persec{color:var(--dim);font-size:.95rem;font-variant-numeric:tabular-nums}
+.persec b{color:var(--text)}
+.rings{margin-left:auto;color:var(--gold);font-weight:700;font-size:.95rem}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:2px;padding:0 8px;background:color-mix(in srgb,var(--bg2) 88%,transparent);
+  border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{background:transparent;border:0;color:var(--dim);padding:11px 16px;font-size:.9rem;font-weight:600;
+  border-bottom:2px solid transparent;white-space:nowrap;transition:.12s;position:relative}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--text);border-bottom-color:var(--accent)}
+.tab .pip{position:absolute;top:8px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--good);
+  box-shadow:0 0 8px var(--good)}
+main{padding:14px 14px 30px}
+
+/* ---------- world pills ---------- */
+.worlds{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px}
+.world{background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-weight:700;font-size:.85rem;
+  padding:9px 14px;border-radius:12px;white-space:nowrap;transition:.13s;line-height:1.25;text-align:left}
+.world small{display:block;font-weight:600;font-size:.68rem;color:var(--dim)}
+.world.on{color:var(--text);border-color:var(--accent);background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 22%,var(--panel2)),var(--panel2));
+  box-shadow:0 4px 14px rgba(255,107,53,.2)}
+.world.lock{opacity:.8}
+.world.lock.afford{border-color:var(--gold);color:var(--text)}
+.world.lock.afford small{color:var(--gold)}
+.world:hover:not(.on){border-color:var(--accent);color:var(--text)}
+
+/* ---------- click zone ---------- */
+.clickzone{display:flex;align-items:center;gap:16px;background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:16px;padding:14px 18px;margin-bottom:14px;position:relative;overflow:hidden}
+.tapbtn{background:radial-gradient(circle at 35% 30%, #ff9a66, var(--accent) 60%, #c94f22);
+  border:0;border-radius:50%;width:86px;height:86px;font-size:2.6rem;flex:0 0 auto;
+  box-shadow:0 8px 24px rgba(255,107,53,.4), inset 0 -4px 10px rgba(0,0,0,.3);
+  transition:transform .07s;user-select:none}
+.tapbtn:active{transform:scale(.9)}
+.clickinfo{min-width:0}
+.clickinfo b{font-size:1.05rem}
+.float{position:absolute;font-weight:800;color:var(--good);pointer-events:none;font-size:1rem;
+  animation:floatup .9s ease-out forwards;text-shadow:0 2px 6px rgba(0,0,0,.6);z-index:3}
+@keyframes floatup{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-56px)}}
+
+/* ---------- business rows ---------- */
+.buybar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.buymode{background:var(--panel2);border:1px solid var(--line);color:var(--text);font-weight:700;
+  padding:8px 16px;border-radius:10px;font-size:.85rem;min-width:86px;transition:.12s}
+.buymode:hover{border-color:var(--accent)}
+.biz{display:flex;align-items:center;gap:12px;background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:10px;transition:.15s}
+.biz.locked{opacity:.45;filter:grayscale(.6)}
+.biz-icon{font-size:1.9rem;flex:0 0 46px;text-align:center}
+.biz-mid{flex:1;min-width:0}
+.biz-name{font-weight:700;font-size:.95rem;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.biz-name .cnt{color:var(--accent);font-size:.8rem;font-weight:800}
+.biz-rev{color:var(--dim);font-size:.8rem;font-variant-numeric:tabular-nums}
+.biz-rev b{color:var(--good)}
+.ms-bar{height:5px;background:#0007;border-radius:4px;overflow:hidden;margin-top:5px;max-width:220px}
+.ms-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--gold));transition:width .25s}
+.ms-lbl{font-size:.68rem;color:var(--dim);margin-top:2px}
+.buy{background:linear-gradient(180deg,#ff7f4d,var(--accent));color:#111;border:0;font-weight:800;
+  padding:10px 12px;border-radius:10px;font-size:.8rem;min-width:110px;text-align:center;transition:.12s;line-height:1.25}
+.buy small{display:block;font-weight:700;font-size:.72rem;opacity:.75}
+.buy:disabled{background:var(--panel2);color:var(--dim);border:1px solid var(--line);cursor:not-allowed}
+.buy:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 14px rgba(255,107,53,.35)}
+
+/* ---------- upgrades ---------- */
+.upg{display:flex;align-items:center;gap:12px;background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.upg-mid{flex:1;min-width:0}
+.upg-name{font-weight:700;font-size:.95rem}
+.upg-desc{color:var(--dim);font-size:.8rem}
+.upg .buy{min-width:96px}
+.done{color:var(--good);font-weight:700;font-size:.85rem;min-width:96px;text-align:center}
+
+/* ---------- prestige / stats ---------- */
+.panel{background:linear-gradient(180deg,color-mix(in srgb,var(--panel2) 45%,var(--panel)),var(--panel));
+  border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px;box-shadow:0 4px 16px rgba(0,0,0,.22)}
+.bigring{font-size:2.6rem;text-align:center;margin:6px 0}
+.primary{background:linear-gradient(180deg,#ffe08a,var(--gold));color:#332800;border:0;font-weight:800;
+  padding:12px 22px;border-radius:12px;font-size:.95rem;transition:.13s;width:100%}
+.primary:disabled{opacity:.4;cursor:not-allowed}
+.primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 20px rgba(255,209,102,.3)}
+.danger{background:transparent;border:1px solid var(--bad);color:var(--bad);padding:9px 16px;border-radius:10px;font-weight:600;font-size:.85rem}
+.statrow{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line);font-size:.9rem}
+.statrow b{font-variant-numeric:tabular-nums}
+
+/* ---------- modal ---------- */
+.overlay{position:fixed;inset:0;background:rgba(5,8,15,.75);backdrop-filter:blur(4px);z-index:50;
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px;max-width:380px;text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal .primary{margin-top:14px}
+@media(max-width:520px){ .tapbtn{width:72px;height:72px;font-size:2.1rem} .cash{font-size:1.55rem} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="brand"><span>🏀 Hardwood <b>Tycoon</b></span></div>
+    <div class="money">
+      <span class="cash" id="cash">$0</span>
+      <span class="persec"><b id="persec">$0</b>/sec</span>
+      <span class="rings" id="ringlbl" title="Championship rings from prestige"></span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-tab="empire">Empire</button>
+    <button class="tab" data-tab="upgrades">Upgrades<span class="pip" id="upg-pip" style="display:none"></span></button>
+    <button class="tab" data-tab="prestige">🏆 Prestige</button>
+    <button class="tab" data-tab="stats">Stats</button>
+  </div>
+
+  <main>
+    <section id="tab-empire">
+      <div class="worlds" id="worldbar"></div>
+      <div class="clickzone" id="clickzone">
+        <button class="tapbtn" id="tap">🏀</button>
+        <div class="clickinfo">
+          <b id="tapverb">Run a pickup game</b>
+          <div class="dim">Tap the ball to hustle up <b id="tapval" style="color:var(--good)">$1</b></div>
+        </div>
+      </div>
+      <div class="buybar">
+        <h3 style="margin:0" id="biztitle">Businesses</h3>
+        <button class="buymode" id="buymode">Buy ×1</button>
+      </div>
+      <div id="bizlist"></div>
+    </section>
+
+    <section id="tab-upgrades" style="display:none">
+      <h3 id="upgtitle">Upgrades</h3>
+      <p class="dim">One-time boosts for the world you're in — each world has its own set. They reset when you prestige; rings don't.</p>
+      <div id="upglist"></div>
+    </section>
+
+    <section id="tab-prestige" style="display:none">
+      <div class="panel" style="text-align:center">
+        <div class="bigring">💍</div>
+        <h2>Win a Championship</h2>
+        <p class="dim">Cash out your empire's run — <b>across every world</b> — for
+        <b style="color:var(--gold)">championship rings</b>. Each ring permanently boosts
+        <b>all income everywhere by +5%</b>. Cash, businesses and upgrades reset in every world;
+        worlds you've unlocked stay unlocked.</p>
+        <div class="statrow"><span>Rings owned</span><b id="p-owned">0</b></div>
+        <div class="statrow"><span>Current income boost</span><b id="p-boost">+0%</b></div>
+        <div class="statrow"><span>This-run earnings (all worlds)</span><b id="p-run">$0</b></div>
+        <div class="statrow"><span>Rings if you prestige now</span><b id="p-gain" style="color:var(--gold)">0</b></div>
+        <div class="statrow"><span>Next ring at</span><b id="p-next">$0</b></div>
+        <button class="primary" id="prestige" disabled>🏆 Prestige</button>
+      </div>
+    </section>
+
+    <section id="tab-stats" style="display:none">
+      <div class="panel">
+        <h3>Career stats</h3>
+        <div id="worldstats"></div>
+        <div class="statrow"><span>Earned all-time (all worlds)</span><b id="s-all">$0</b></div>
+        <div class="statrow"><span>Taps</span><b id="s-taps">0</b></div>
+        <div class="statrow"><span>Championships (prestiges)</span><b id="s-prest">0</b></div>
+        <div class="statrow"><span>Rings</span><b id="s-rings">0</b></div>
+      </div>
+      <div class="panel">
+        <h3>Danger zone</h3>
+        <p class="dim">Wipes the whole empire — every world, rings included.</p>
+        <button class="danger" id="hardreset">Reset everything</button>
+      </div>
+      <p class="dim" style="text-align:center">Auto-saves to this browser every few seconds. Every world keeps earning while you're away (up to 8h, at 50% rate).</p>
+    </section>
+  </main>
+</div>
+
+<script>
+'use strict';
+/* =============================== data =================================== */
+// Each world has its own currency, businesses, upgrades and tap power.
+// `unlock` is paid with the PREVIOUS world's cash.
+const WORLDS = [
+{ name:'Streetball City', emoji:'🏙️', unlock:0, clickBase:1, clickVerb:'Run a pickup game',
+  biz:[
+    { name:'Pickup Games',      emoji:'🏀', cost:5,             rev:0.6,         mult:1.10 },
+    { name:'Popcorn Cart',      emoji:'🍿', cost:60,            rev:6,           mult:1.12 },
+    { name:'Merch Stand',       emoji:'👕', cost:720,           rev:54,          mult:1.13 },
+    { name:'Ticket Booth',      emoji:'🎟️', cost:8.64e3,        rev:432,         mult:1.14 },
+    { name:'Parking Garage',    emoji:'🅿️', cost:1.0368e5,      rev:3456,        mult:1.14 },
+    { name:'Training Facility', emoji:'🏋️', cost:1.24416e6,     rev:2.7648e4,    mult:1.13 },
+    { name:'Jumbotron Ads',     emoji:'📺', cost:1.492992e7,    rev:2.21184e5,   mult:1.12 },
+    { name:'Luxury Suites',     emoji:'🥂', cost:1.7915904e8,   rev:1.769472e6,  mult:1.11 },
+    { name:'Regional TV Deal',  emoji:'📡', cost:2.14990848e9,  rev:1.4155776e7, mult:1.10 },
+    { name:'Global Streaming',  emoji:'🌍', cost:2.579890176e10,rev:1.13246208e8,mult:1.09 },
+  ],
+  ups:[
+    { id:'u0', name:'Better Basketballs', desc:'Pickup Games ×3',      cost:250,    type:'biz', biz:0, mult:3 },
+    { id:'c0', name:'Foam Fingers',       desc:'Tap power ×2',         cost:500,    type:'click', mult:2 },
+    { id:'u1', name:'Extra Butter',       desc:'Popcorn Cart ×3',      cost:3e3,    type:'biz', biz:1, mult:3 },
+    { id:'u2', name:'Retro Jerseys',      desc:'Merch Stand ×3',       cost:4e4,    type:'biz', biz:2, mult:3 },
+    { id:'c1', name:'T-Shirt Cannon',     desc:'Tap power ×3',         cost:5e4,    type:'click', mult:3 },
+    { id:'u3', name:'Dynamic Pricing',    desc:'Ticket Booth ×3',      cost:5e5,    type:'biz', biz:3, mult:3 },
+    { id:'a0', name:'Team Mascot',        desc:'ALL City income ×2',   cost:1e6,    type:'all', mult:2 },
+    { id:'u4', name:'Valet Service',      desc:'Parking Garage ×3',    cost:6e6,    type:'biz', biz:4, mult:3 },
+    { id:'c2', name:'Fan Frenzy',         desc:'Taps also earn +1% of your $/sec', cost:5e6, type:'clickpct', pct:0.01 },
+    { id:'u5', name:'Pro Trainers',       desc:'Training Facility ×3', cost:7.5e7,  type:'biz', biz:5, mult:3 },
+    { id:'u6', name:'4K Jumbotron',       desc:'Jumbotron Ads ×3',     cost:9e8,    type:'biz', biz:6, mult:3 },
+    { id:'a1', name:'Winning Season',     desc:'ALL City income ×2',   cost:1e9,    type:'all', mult:2 },
+    { id:'c3', name:'Halftime Show',      desc:'Taps also earn +2% of your $/sec', cost:5e8, type:'clickpct', pct:0.02 },
+    { id:'u7', name:'Champagne Service',  desc:'Luxury Suites ×3',     cost:1.1e10, type:'biz', biz:7, mult:3 },
+    { id:'u8', name:'Prime-Time Slots',   desc:'Regional TV Deal ×3',  cost:1.3e11, type:'biz', biz:8, mult:3 },
+    { id:'a2', name:'All-Star Weekend',   desc:'ALL City income ×2',   cost:1e12,   type:'all', mult:2 },
+    { id:'u9', name:'Worldwide Rights',   desc:'Global Streaming ×3',  cost:1.6e12, type:'biz', biz:9, mult:3 },
+    { id:'a3', name:'Dynasty Era',        desc:'ALL City income ×3',   cost:1e15,   type:'all', mult:3 },
+  ],
+},
+{ name:'Global Circuit', emoji:'🌍', unlock:2.5e9, clickBase:500, clickVerb:'Host an exhibition game',
+  biz:[
+    { name:'Beach Tournaments', emoji:'🏖️', cost:100,          rev:40,        mult:1.12 },
+    { name:'Sneaker Line',      emoji:'👟', cost:1.2e3,        rev:360,       mult:1.13 },
+    { name:'Hoops Academy',     emoji:'🎓', cost:1.44e4,       rev:3.24e3,    mult:1.13 },
+    { name:'Euro Arena',        emoji:'🏟️', cost:1.728e5,      rev:2.6e4,     mult:1.14 },
+    { name:'World Tours',       emoji:'✈️', cost:2.0736e6,     rev:2.07e5,    mult:1.13 },
+    { name:'Esports Franchise', emoji:'🎮', cost:2.48832e7,    rev:1.66e6,    mult:1.12 },
+    { name:'Highlight App',     emoji:'📱', cost:2.985984e8,   rev:1.33e7,    mult:1.11 },
+    { name:'World League HQ',   emoji:'🛰️', cost:3.5831808e9,  rev:1.06e8,    mult:1.10 },
+  ],
+  ups:[
+    { id:'g0', name:'Sand Courts',        desc:'Beach Tournaments ×3', cost:5e3,    type:'biz', biz:0, mult:3 },
+    { id:'g1', name:'Signature Shoe',     desc:'Sneaker Line ×3',      cost:6e4,    type:'biz', biz:1, mult:3 },
+    { id:'gc0',name:'Hype Man',           desc:'Tap power ×3',         cost:2.5e5,  type:'click', mult:3 },
+    { id:'g2', name:'Pro Coaches',        desc:'Hoops Academy ×3',     cost:7e5,    type:'biz', biz:2, mult:3 },
+    { id:'g3', name:'Roaring Ultras',     desc:'Euro Arena ×3',        cost:9e6,    type:'biz', biz:3, mult:3 },
+    { id:'ga0',name:'Global Merch Drop',  desc:'ALL Circuit income ×2',cost:5e7,    type:'all', mult:2 },
+    { id:'g4', name:'Private Jet',        desc:'World Tours ×3',       cost:1e8,    type:'biz', biz:4, mult:3 },
+    { id:'gc1',name:'Showtime',           desc:'Taps also earn +1% of your $/sec', cost:2.5e8, type:'clickpct', pct:0.01 },
+    { id:'g5', name:'Streamer Collab',    desc:'Esports Franchise ×3', cost:1.2e9,  type:'biz', biz:5, mult:3 },
+    { id:'g6', name:'Viral Algorithm',    desc:'Highlight App ×3',     cost:1.5e10, type:'biz', biz:6, mult:3 },
+    { id:'ga1',name:'World Cup Fever',    desc:'ALL Circuit income ×2',cost:5e10,   type:'all', mult:2 },
+    { id:'g7', name:'Orbital Uplink',     desc:'World League HQ ×3',   cost:1.8e11, type:'biz', biz:7, mult:3 },
+  ],
+},
+{ name:'Lunar League', emoji:'🌕', unlock:5e10, clickBase:2.5e5, clickVerb:'Dunk in zero-G',
+  biz:[
+    { name:'Crater Courts',        emoji:'🌑', cost:5e3,          rev:2.4e3,   mult:1.11 },
+    { name:'Shuttle Shootarounds', emoji:'🚀', cost:6e4,          rev:2.16e4,  mult:1.12 },
+    { name:'Anti-Grav Gyms',       emoji:'🛸', cost:7.2e5,        rev:1.94e5,  mult:1.13 },
+    { name:'Robo Refs',            emoji:'🤖', cost:8.64e6,       rev:1.56e6,  mult:1.13 },
+    { name:'Alien Scouting',       emoji:'👽', cost:1.0368e8,     rev:1.24e7,  mult:1.13 },
+    { name:'Galaxy Broadcasts',    emoji:'🌌', cost:1.24416e9,    rev:9.95e7,  mult:1.12 },
+    { name:'Zero-G Arena',         emoji:'💫', cost:1.492992e10,  rev:7.96e8,  mult:1.11 },
+    { name:'Interplanetary Cup',   emoji:'🪐', cost:1.7915904e11, rev:6.37e9,  mult:1.09 },
+  ],
+  ups:[
+    { id:'m0', name:'Regolith Resurfacing',   desc:'Crater Courts ×3',        cost:2.5e5,  type:'biz', biz:0, mult:3 },
+    { id:'m1', name:'Reusable Boosters',      desc:'Shuttle Shootarounds ×3', cost:3e6,    type:'biz', biz:1, mult:3 },
+    { id:'mc0',name:'Moon Bounce',            desc:'Tap power ×3',            cost:1.25e7, type:'click', mult:3 },
+    { id:'m2', name:'Magnet Boots',           desc:'Anti-Grav Gyms ×3',       cost:3.6e7,  type:'biz', biz:2, mult:3 },
+    { id:'m3', name:'Sentient Whistles',      desc:'Robo Refs ×3',            cost:4.3e8,  type:'biz', biz:3, mult:3 },
+    { id:'ma0',name:'Low Gravity, High Scores',desc:'ALL Lunar income ×2',    cost:2.5e9,  type:'all', mult:2 },
+    { id:'m4', name:'Universal Translators',  desc:'Alien Scouting ×3',       cost:5e9,    type:'biz', biz:4, mult:3 },
+    { id:'mc1',name:'Cosmic Crowd Wave',      desc:'Taps also earn +2% of your $/sec', cost:1.25e10, type:'clickpct', pct:0.02 },
+    { id:'m5', name:'Wormhole Relays',        desc:'Galaxy Broadcasts ×3',    cost:6e10,   type:'biz', biz:5, mult:3 },
+    { id:'m6', name:'Orbital Skybox',         desc:'Zero-G Arena ×3',         cost:7.5e11, type:'biz', biz:6, mult:3 },
+    { id:'ma1',name:'First Contact Deal',     desc:'ALL Lunar income ×3',     cost:2.5e12, type:'all', mult:3 },
+    { id:'m7', name:'Ringed-Planet Trophy',   desc:'Interplanetary Cup ×3',   cost:9e12,   type:'biz', biz:7, mult:3 },
+  ],
+},
+];
+const MILESTONES = [10, 25, 50, 100, 200, 300, 400, 500, 750, 1000]; // each hit → ×2 for that business
+
+const RING_UNIT = 5e8;          // rings = cbrt(combined run earnings / RING_UNIT)
+const RING_BOOST = 0.05;        // +5% income per ring, everywhere
+const OFFLINE_CAP = 8 * 3600;   // seconds
+const OFFLINE_RATE = 0.5;
+const SAVE_KEY = 'hardwoodTycoonV2';
+const SAVE_KEY_V1 = 'hardwoodTycoonV1';
+
+/* =============================== state =================================== */
+let S = null;
+function freshWorld(i){
+  return { cash: i === 0 ? 10 : 0, run:0, earned:0, counts:WORLDS[i].biz.map(()=>0), ups:[] };
+}
+function freshRunState(){ // what prestige resets (worlds stay unlocked)
+  return { worlds: WORLDS.map((_, i) => freshWorld(i)), cur:0 };
+}
+function freshState(){
+  return { ...freshRunState(), unlocked:WORLDS.map((_, i) => i === 0),
+           all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now() };
+}
+function load(){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    const d = freshState();
+    if (raw){
+      const s = JSON.parse(raw);
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last'])
+        if (s[k] !== undefined) d[k] = s[k];
+      if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
+        if (!d.worlds[i]) return;
+        Object.assign(d.worlds[i], w);
+        while (d.worlds[i].counts.length < WORLDS[i].biz.length) d.worlds[i].counts.push(0);
+      });
+      while (d.unlocked.length < WORLDS.length) d.unlocked.push(false);
+      if (!d.unlocked[d.cur]) d.cur = 0;
+      return d;
+    }
+    // migrate a pre-worlds (V1) save into Streetball City
+    const raw1 = localStorage.getItem(SAVE_KEY_V1);
+    if (raw1){
+      const s = JSON.parse(raw1);
+      Object.assign(d.worlds[0], { cash:s.cash ?? 10, run:s.run ?? 0, earned:s.all ?? 0,
+        counts:(s.counts || []).concat(), ups:(s.ups || []).concat() });
+      while (d.worlds[0].counts.length < WORLDS[0].biz.length) d.worlds[0].counts.push(0);
+      for (const k of ['all','taps','rings','prestiges','buyIdx','last'])
+        if (s[k] !== undefined) d[k] = s[k];
+      localStorage.removeItem(SAVE_KEY_V1);
+    }
+    return d;
+  } catch { return freshState(); }
+}
+function save(){ S.last = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch {} }
+
+/* ============================== math ===================================== */
+function fmt(n){
+  if (!isFinite(n)) return '∞';
+  if (n < 0) return '-' + fmt(-n);
+  if (n < 1e3) return n >= 100 || n === Math.floor(n) ? String(Math.floor(n)) : n.toFixed(1);
+  const SUF = ['K','M','B','T','Qa','Qi','Sx','Sp','Oc','No','Dc'];
+  let tier = Math.floor(Math.log10(n) / 3);
+  if (tier - 1 >= SUF.length) return n.toExponential(2);
+  const v = n / Math.pow(10, tier * 3);
+  return (v >= 100 ? v.toFixed(0) : v.toFixed(2)) + SUF[tier - 1];
+}
+const $$ = n => '$' + fmt(n);
+
+const W  = (i = S.cur) => S.worlds[i];       // world state
+const WD = (i = S.cur) => WORLDS[i];         // world definition
+function hasUp(id, wi = S.cur){ return W(wi).ups.includes(id); }
+function ringMult(){ return 1 + S.rings * RING_BOOST; }
+function allMult(wi = S.cur){
+  let m = ringMult();
+  for (const u of WD(wi).ups) if (u.type === 'all' && hasUp(u.id, wi)) m *= u.mult;
+  return m;
+}
+function bizMult(i, wi = S.cur){
+  let m = 1;
+  for (const ms of MILESTONES) if (W(wi).counts[i] >= ms) m *= 2;
+  for (const u of WD(wi).ups) if (u.type === 'biz' && u.biz === i && hasUp(u.id, wi)) m *= u.mult;
+  return m;
+}
+function bizRate(i, wi = S.cur){ return WD(wi).biz[i].rev * W(wi).counts[i] * bizMult(i, wi) * allMult(wi); }
+function worldRate(wi = S.cur){ let t = 0; for (let i = 0; i < WD(wi).biz.length; i++) t += bizRate(i, wi); return t; }
+function clickPower(wi = S.cur){
+  let m = 1, pct = 0;
+  for (const u of WD(wi).ups){
+    if (!hasUp(u.id, wi)) continue;
+    if (u.type === 'click') m *= u.mult;
+    if (u.type === 'clickpct') pct += u.pct;
+  }
+  return WD(wi).clickBase * m * ringMult() + pct * worldRate(wi);
+}
+// cost of the next n units of business i in the current world (geometric series)
+function costOf(i, n, wi = S.cur){
+  const b = WD(wi).biz[i], r = b.mult, c = W(wi).counts[i];
+  return b.cost * Math.pow(r, c) * (Math.pow(r, n) - 1) / (r - 1);
+}
+function maxAffordable(i, wi = S.cur){
+  const b = WD(wi).biz[i], r = b.mult;
+  const unit = b.cost * Math.pow(r, W(wi).counts[i]);
+  const n = Math.floor(Math.log(W(wi).cash * (r - 1) / unit + 1) / Math.log(r));
+  return Math.max(0, n);
+}
+function totalRun(){ return S.worlds.reduce((t, w) => t + w.run, 0); }
+function ringsFor(run){ return Math.floor(Math.cbrt(run / RING_UNIT)); }
+function runNeededFor(rings){ return Math.pow(rings, 3) * RING_UNIT; }
+
+/* =============================== actions ================================= */
+const BUY_MODES = [{ n:1, lbl:'×1' }, { n:10, lbl:'×10' }, { n:100, lbl:'×100' }, { n:'max', lbl:'MAX' }];
+function buyAmount(i){
+  const m = BUY_MODES[S.buyIdx];
+  if (m.n === 'max') return Math.max(1, maxAffordable(i));
+  return m.n;
+}
+function earn(x, wi = S.cur){ const w = W(wi); w.cash += x; w.run += x; w.earned += x; S.all += x; }
+
+function tap(ev){
+  const p = clickPower();
+  earn(p);
+  S.taps++;
+  const zone = document.getElementById('clickzone');
+  const f = document.createElement('span');
+  f.className = 'float';
+  f.textContent = '+' + $$(p);
+  const r = zone.getBoundingClientRect();
+  const x = (ev.touches?.[0]?.clientX ?? ev.clientX ?? r.left + 60) - r.left;
+  f.style.left = Math.min(Math.max(x, 10), r.width - 70) + 'px';
+  f.style.top = '30px';
+  zone.appendChild(f);
+  setTimeout(() => f.remove(), 900);
+  paint();
+}
+
+function buy(i){
+  const n = buyAmount(i);
+  const c = costOf(i, n);
+  if (W().cash < c) return;
+  W().cash -= c;
+  W().counts[i] += n;
+  rebuildBiz(); paint(); save();
+}
+
+function buyUpgrade(id){
+  const u = WD().ups.find(u => u.id === id);
+  if (!u || hasUp(id) || W().cash < u.cost) return;
+  W().cash -= u.cost;
+  W().ups.push(id);
+  rebuildUpgrades(); paint(); save();
+}
+
+function switchWorld(wi){
+  if (!S.unlocked[wi] || wi === S.cur) return;
+  S.cur = wi;
+  rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); save();
+}
+
+function unlockWorld(wi){
+  const cost = WORLDS[wi].unlock, payer = S.worlds[wi - 1];
+  if (S.unlocked[wi] || !S.unlocked[wi - 1] || payer.cash < cost) return;
+  if (!confirm(`Expand to the ${WORLDS[wi].name}?\n\nCosts ${$$(cost)} of your ${WORLDS[wi-1].name} cash. It has its own currency, businesses and upgrades.`)) return;
+  payer.cash -= cost;
+  S.unlocked[wi] = true;
+  switchWorld(wi);
+}
+
+function doPrestige(){
+  const gain = ringsFor(totalRun());
+  if (gain < 1) return;
+  if (!confirm(`Win the championship?\n\nYou gain ${gain} ring${gain>1?'s':''} (+${gain*5}% income forever, in every world).\nCash, businesses and upgrades reset in ALL worlds. Unlocked worlds stay unlocked.`)) return;
+  S.rings += gain;
+  S.prestiges++;
+  Object.assign(S, freshRunState());
+  rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); save();
+}
+
+/* =============================== UI ====================================== */
+const el = id => document.getElementById(id);
+let bizEls = [], upgEls = {}, worldEls = [];
+
+function rebuildWorlds(){
+  const bar = el('worldbar'); bar.innerHTML = ''; worldEls = [];
+  WORLDS.forEach((w, i) => {
+    const b = document.createElement('button');
+    if (S.unlocked[i]){
+      b.className = 'world' + (i === S.cur ? ' on' : '');
+      b.innerHTML = `${w.emoji} ${w.name}<small></small>`;
+      b.addEventListener('click', () => switchWorld(i));
+    } else {
+      b.className = 'world lock';
+      b.innerHTML = `🔒 ${w.name}<small>Unlock: ${$$(w.unlock)} (${WORLDS[i-1].name} cash)</small>`;
+      b.addEventListener('click', () => unlockWorld(i));
+    }
+    bar.appendChild(b);
+    worldEls.push(b);
+  });
+}
+
+function rebuildBiz(){
+  const list = el('bizlist'); list.innerHTML = ''; bizEls = [];
+  WD().biz.forEach((b, i) => {
+    const row = document.createElement('div'); row.className = 'biz';
+    row.innerHTML = `
+      <div class="biz-icon">${b.emoji}</div>
+      <div class="biz-mid">
+        <div class="biz-name">${b.name} <span class="cnt"></span></div>
+        <div class="biz-rev"></div>
+        <div class="ms-bar"><span></span></div>
+        <div class="ms-lbl"></div>
+      </div>
+      <button class="buy"></button>`;
+    row.querySelector('.buy').addEventListener('click', () => buy(i));
+    list.appendChild(row);
+    bizEls.push({
+      row, cnt: row.querySelector('.cnt'), rev: row.querySelector('.biz-rev'),
+      bar: row.querySelector('.ms-bar span'), lbl: row.querySelector('.ms-lbl'),
+      btn: row.querySelector('.buy'),
+    });
+  });
+}
+
+function rebuildUpgrades(){
+  const list = el('upglist'); list.innerHTML = ''; upgEls = {};
+  for (const u of WD().ups.slice().sort((a,b)=>a.cost-b.cost)){
+    const row = document.createElement('div'); row.className = 'upg';
+    row.innerHTML = `
+      <div class="biz-icon">${u.type==='all'?'⭐':u.type==='biz'?WD().biz[u.biz].emoji:'👆'}</div>
+      <div class="upg-mid"><div class="upg-name">${u.name}</div><div class="upg-desc">${u.desc}</div></div>
+      ${hasUp(u.id) ? '<div class="done">✓ Owned</div>' : `<button class="buy">${$$(u.cost)}</button>`}`;
+    const btn = row.querySelector('button.buy');
+    if (btn) btn.addEventListener('click', () => buyUpgrade(u.id));
+    list.appendChild(row);
+    upgEls[u.id] = { row, btn };
+  }
+}
+
+function paint(){
+  const w = W(), wd = WD();
+  el('cash').textContent = $$(w.cash);
+  el('persec').textContent = $$(worldRate());
+  el('tapval').textContent = $$(clickPower());
+  el('tapverb').textContent = wd.clickVerb;
+  el('biztitle').textContent = wd.emoji + ' ' + wd.name;
+  el('upgtitle').textContent = wd.emoji + ' ' + wd.name + ' upgrades';
+  el('ringlbl').textContent = S.rings > 0 ? `💍 ${S.rings} (+${Math.round(S.rings*RING_BOOST*100)}%)` : '';
+
+  // world pills: cash-per-world under unlocked ones, affordability glow on locked ones
+  WORLDS.forEach((def, i) => {
+    const b = worldEls[i]; if (!b) return;
+    if (S.unlocked[i]){
+      const s = b.querySelector('small');
+      if (s) s.textContent = $$(S.worlds[i].cash) + (worldRate(i) > 0 ? ' · ' + $$(worldRate(i)) + '/s' : '');
+    } else {
+      b.classList.toggle('afford', !!S.unlocked[i-1] && S.worlds[i-1].cash >= def.unlock);
+    }
+  });
+
+  let anyUpgAffordable = false;
+  wd.biz.forEach((b, i) => {
+    const e = bizEls[i], c = w.counts[i];
+    const n = buyAmount(i), cost = costOf(i, n);
+    const unlocked = c > 0 || w.earned >= b.cost * 0.5 || i === 0;
+    e.row.classList.toggle('locked', !unlocked);
+    e.cnt.textContent = '×' + c;
+    e.rev.innerHTML = c > 0 ? `<b>${$$(bizRate(i))}</b>/sec` : `earns ${$$(b.rev*allMult())}/sec each`;
+    const next = MILESTONES.find(m => m > c);
+    if (next){
+      const prev = MILESTONES.filter(m => m <= c).pop() || 0;
+      e.bar.style.width = Math.min(100, (c - prev) / (next - prev) * 100) + '%';
+      e.lbl.textContent = `${c}/${next} → ×2 boost`;
+    } else { e.bar.style.width = '100%'; e.lbl.textContent = 'All milestones hit!'; }
+    e.btn.innerHTML = `Buy ${BUY_MODES[S.buyIdx].n==='max'?('×'+n):BUY_MODES[S.buyIdx].lbl}<small>${$$(cost)}</small>`;
+    e.btn.disabled = w.cash < cost;
+  });
+
+  for (const u of wd.ups){
+    const e = upgEls[u.id]; if (!e || !e.btn) continue;
+    e.btn.disabled = w.cash < u.cost;
+    e.row.style.display = (w.earned >= u.cost / 20) ? '' : 'none';
+    if (!hasUp(u.id) && w.cash >= u.cost && w.earned >= u.cost / 20) anyUpgAffordable = true;
+  }
+  el('upg-pip').style.display = anyUpgAffordable ? '' : 'none';
+
+  // prestige tab
+  const run = totalRun(), gain = ringsFor(run);
+  el('p-owned').textContent = S.rings;
+  el('p-boost').textContent = '+' + Math.round(S.rings * RING_BOOST * 100) + '%';
+  el('p-run').textContent = $$(run);
+  el('p-gain').textContent = gain;
+  el('p-next').textContent = $$(runNeededFor(gain + 1));
+  el('prestige').disabled = gain < 1;
+  el('prestige').textContent = gain >= 1 ? `🏆 Prestige for ${gain} ring${gain>1?'s':''}` : '🏆 Prestige (earn more first)';
+
+  // stats
+  el('worldstats').innerHTML = WORLDS.map((def, i) =>
+    `<div class="statrow"><span>${def.emoji} ${def.name} — earned all-time</span><b>${S.unlocked[i] ? $$(S.worlds[i].earned) : '🔒'}</b></div>`).join('');
+  el('s-all').textContent = $$(S.all);
+  el('s-taps').textContent = S.taps.toLocaleString();
+  el('s-prest').textContent = S.prestiges;
+  el('s-rings').textContent = S.rings;
+}
+
+/* =============================== tabs ==================================== */
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+  for (const sec of ['empire','upgrades','prestige','stats'])
+    el('tab-' + sec).style.display = t.dataset.tab === sec ? '' : 'none';
+}));
+
+/* =============================== boot ==================================== */
+S = load();
+
+// offline earnings — every unlocked world keeps producing
+(function offline(){
+  const away = Math.min(OFFLINE_CAP, (Date.now() - (S.last || Date.now())) / 1000);
+  if (away <= 60) return;
+  const gains = WORLDS.map((_, i) => S.unlocked[i] ? worldRate(i) * away * OFFLINE_RATE : 0);
+  if (!gains.some(g => g > 0)) return;
+  gains.forEach((g, i) => { if (g > 0) earn(g, i); });
+  const lines = gains.map((g, i) => g > 0 ? `${WORLDS[i].emoji} ${$$(g)}` : null).filter(Boolean).join(' &nbsp;·&nbsp; ');
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  ov.innerHTML = `<div class="modal">
+    <div style="font-size:2.4rem">🌙</div>
+    <h2>While you were away…</h2>
+    <p class="dim">Your empire kept hustling for ${away >= 3600 ? Math.floor(away/3600)+'h '+Math.floor(away%3600/60)+'m' : Math.floor(away/60)+'m'} and earned</p>
+    <div style="font-size:1.3rem;font-weight:800;color:var(--good)">${lines}</div>
+    <button class="primary">Collect 💰</button>
+  </div>`;
+  ov.querySelector('button').addEventListener('click', () => { ov.remove(); });
+  document.body.appendChild(ov);
+})();
+
+el('tap').addEventListener('click', tap);
+el('buymode').addEventListener('click', () => {
+  S.buyIdx = (S.buyIdx + 1) % BUY_MODES.length;
+  el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx].lbl;
+  paint();
+});
+el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
+el('prestige').addEventListener('click', doPrestige);
+el('hardreset').addEventListener('click', () => {
+  if (!confirm('Wipe EVERYTHING — every world, cash, businesses, upgrades AND rings?')) return;
+  if (!confirm('Really? This cannot be undone.')) return;
+  S = freshState(); save(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+});
+
+rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+
+// game loop: 4 ticks/sec income for every unlocked world, repaint each tick
+let lastTick = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  const dt = Math.min(2, (now - lastTick) / 1000);
+  lastTick = now;
+  WORLDS.forEach((_, i) => {
+    if (!S.unlocked[i]) return;
+    const r = worldRate(i);
+    if (r > 0) earn(r * dt, i);
+  });
+  paint();
+}, 250);
+setInterval(save, 5000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+window.addEventListener('beforeunload', save);
+</script>
+</body>
+</html>
