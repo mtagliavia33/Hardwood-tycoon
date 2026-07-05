@@ -250,6 +250,7 @@ main{padding:14px 14px 30px}
       <div class="panel"><h3>💰 Most money earned</h3><div id="lb-money"></div></div>
       <div class="panel"><h3>⚡ Most money made in a second</h3><div id="lb-rate"></div></div>
       <div class="panel"><h3>💍 Most rings</h3><div id="lb-rings"></div></div>
+      <div class="panel"><h3>⏳ Longest single session</h3><div id="lb-session"></div></div>
     </section>
 
     <section id="tab-stats" style="display:none">
@@ -471,14 +472,14 @@ function freshRunState(){ // what prestige resets — worlds lock again, back to
 function freshState(){
   return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
-           playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0 };
+           playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0 };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -789,6 +790,37 @@ migrateLegacy();
 // welcome-back: daily login bonus (20% of cash, once per calendar day) +
 // offline earnings, shown together in one popup.
 const dayStamp = (d = new Date()) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+
+// daily podium reward: once per day, being top 3 on a leaderboard multiplies
+// your cash — 1st ×8, 2nd ×4, 3rd ×2 — and it applies on every board.
+const PODIUM_BOARDS = [
+  ['most money earned', r => r.all || 0],
+  ['most time played', r => r.playtime || 0],
+  ['most money per second', r => r.peakRate || 0],
+  ['most rings', r => r.rings || 0],
+  ['longest single session', r => r.longestSession || 0],
+];
+const PODIUM_MULT = [8, 4, 2];
+function checkPodium(){
+  if (!S || !player || !serverOn || !lbOnline || !lbOnline.length) return;
+  const today = dayStamp();
+  if (S.lastPodium === today) return;
+  let total = 1; const wins = [];
+  for (const [label, val] of PODIUM_BOARDS){
+    const sorted = lbOnline.slice().sort((a, b) => val(b) - val(a));
+    const idx = sorted.findIndex(r => r.name === player);
+    if (idx >= 0 && idx < 3 && val(sorted[idx]) > 0){
+      total *= PODIUM_MULT[idx];
+      wins.push(`🏅 ${['1st','2nd','3rd'][idx]} in ${label} — ×${PODIUM_MULT[idx]}`);
+    }
+  }
+  S.lastPodium = today;
+  if (wins.length){
+    S.worlds.forEach(w => { w.cash *= total; });
+    paint(); save();
+    showNotice('🏆', `Daily podium reward — ×${total} cash!`, wins.map(esc).join('<br>'));
+  } else { save(); }
+}
 function collectOffline(){
   let daily = 0;
   const today = dayStamp();
@@ -894,6 +926,7 @@ function hideTicker(){ clearTimeout(tickerTimer); el('ticker').style.display = '
 // online accounts: remembered {name: pin} sessions on this device
 const SESS_KEY = 'hardwoodTycoonSessions';
 let onlineCreds = null;   // {name, pin} while playing a server account
+let sessionSeconds = 0;   // length of the current uninterrupted session (resets on start/switch)
 let lbOnline = null;      // cached global leaderboard rows
 function deviceId(){
   let id = localStorage.getItem('hardwoodTycoonDevice');
@@ -940,6 +973,7 @@ async function syncTick(){ // push my save to the server, pick up commands
       } else if (a && (!a.id || !a.text)){
         hideTicker();                  // announcement cleared
       }
+      checkPodium();                   // daily top-3 reward once the board is loaded
     } catch {}
   }
   if (!S || !onlineCreds || !serverOn) return;
@@ -1319,21 +1353,21 @@ function fmtTime(sec){
 function leaderRows(){
   if (serverOn && lbOnline){ // global boards from the server
     const rows = lbOnline.map(r => ({ name: r.name, you: player === r.name,
-      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0 }));
+      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0, session: r.longestSession || 0 }));
     const mine = rows.find(r => r.you);
-    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; } // live numbers for me
-    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings });
+    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; mine.session = S.longestSession; } // live numbers for me
+    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings, session: S.longestSession });
     return rows;
   }
   const rows = [];
   for (const n of accounts()){
-    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings }); continue; }
+    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession }); continue; }
     try {
       const s = JSON.parse(localStorage.getItem(acctKey(n)));
-      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0 });
+      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0, session:s.longestSession || 0 });
     } catch {}
   }
-  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings });
+  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession });
   return rows;
 }
 function renderBoard(id, rows, val){
@@ -1351,6 +1385,7 @@ function renderLeaders(){
   renderBoard('lb-money', rows.slice().sort((a, b) => b.money - a.money).slice(0, TOP), r => $$(r.money));
   renderBoard('lb-rate',  rows.slice().sort((a, b) => b.rate  - a.rate).slice(0, TOP),  r => $$(r.rate) + '/sec');
   renderBoard('lb-rings', rows.slice().sort((a, b) => b.rings - a.rings).slice(0, TOP), r => `${(r.rings || 0).toLocaleString()} 💍`);
+  renderBoard('lb-session', rows.slice().sort((a, b) => b.session - a.session).slice(0, TOP), r => fmtTime(r.session));
 }
 
 function createAccount(name){
@@ -1369,6 +1404,7 @@ function startGame(name, remoteSave){
   S = load(remoteSave !== undefined ? remoteSave : (name ? localStorage.getItem(acctKey(name)) : null));
   applySport(S.sport || 'basketball');
   renderGiveRow();
+  sessionSeconds = 0;   // fresh session for this player
   collectOffline();
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
   updateAcctUI();
@@ -1621,6 +1657,8 @@ setInterval(() => {
   lastTick = now;
   if (!S) return;
   S.playtime += dt;
+  sessionSeconds += dt;                                   // this continuous session
+  if (sessionSeconds > (S.longestSession || 0)) S.longestSession = sessionSeconds;
   let totalRate = 0;
   WORLDS.forEach((_, i) => {
     if (!S.unlocked[i]) return;
