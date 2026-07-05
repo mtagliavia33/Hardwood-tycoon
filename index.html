@@ -728,7 +728,7 @@ const ADMIN_KEY = 'hardwoodTycoonAdmin';
 /* ---- online sync (optional Railway server) ---- */
 // When the game is served by server.mjs, the same origin is used automatically.
 // For the GitHub Pages copy, set SYNC_URL to the Railway URL so its players sync too.
-const SYNC_URL = '';
+const SYNC_URL = 'https://hardwood-tycoon.up.railway.app';
 let serverOn = false;
 function apiRoot(){
   if (SYNC_URL) return SYNC_URL.replace(/\/+$/, '');
