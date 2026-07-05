@@ -134,6 +134,14 @@ main{padding:14px 14px 30px}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px;max-width:380px;text-align:center;
   box-shadow:0 20px 60px rgba(0,0,0,.6)}
 .modal .primary{margin-top:14px}
+.modal .btncol{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.modal .btncol button{width:100%}
+.modal .btncol .primary{margin-top:0}
+.ghost{background:transparent;border:1px solid var(--line);color:inherit;padding:11px 16px;border-radius:10px;font-weight:600}
+.ghost:hover{border-color:var(--dim)}
+.fineprint{color:var(--dim);font-size:.72rem;margin:4px 0 0}
+.modal input{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;color:inherit;font-family:inherit;font-size:1rem;margin-top:14px;text-align:center}
 @media(max-width:520px){ .tapbtn{width:72px;height:72px;font-size:2.1rem} .cash{font-size:1.55rem} }
 </style>
 </head>
@@ -205,11 +213,17 @@ main{padding:14px 14px 30px}
         <div class="statrow"><span>Rings</span><b id="s-rings">0</b></div>
       </div>
       <div class="panel">
+        <h3>Account</h3>
+        <p class="dim" id="acctinfo"></p>
+        <button class="ghost" id="acctsave" style="display:none">Save progress to an account</button>
+        <button class="ghost" id="switchbtn">Switch player</button>
+      </div>
+      <div class="panel">
         <h3>Danger zone</h3>
         <p class="dim">Wipes the whole empire — every world, rings included.</p>
         <button class="danger" id="hardreset">Reset everything</button>
       </div>
-      <p class="dim" style="text-align:center">Auto-saves to this browser every few seconds. Every world keeps earning while you're away (up to 8h, at 50% rate).</p>
+      <p class="dim" style="text-align:center" id="savenote"></p>
     </section>
   </main>
 </div>
@@ -315,9 +329,12 @@ const OFFLINE_CAP = 8 * 3600;   // seconds
 const OFFLINE_RATE = 0.5;
 const SAVE_KEY = 'hardwoodTycoonV2';
 const SAVE_KEY_V1 = 'hardwoodTycoonV1';
+const ACCTS_KEY = 'hardwoodTycoonAccounts';
+const acctKey = n => SAVE_KEY + ':acct:' + n;
 
 /* =============================== state =================================== */
-let S = null;
+let S = null;       // active game state (null until a player starts)
+let player = null;  // account name; null = guest (or start screen)
 function freshWorld(i){
   return { cash: i === 0 ? 10 : 0, run:0, earned:0, counts:WORLDS[i].biz.map(()=>0), ups:[] };
 }
@@ -328,9 +345,8 @@ function freshState(){
   return { ...freshRunState(), unlocked:WORLDS.map((_, i) => i === 0),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now() };
 }
-function load(){
+function load(raw){
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
     const d = freshState();
     if (raw){
       const s = JSON.parse(raw);
@@ -359,7 +375,23 @@ function load(){
     return d;
   } catch { return freshState(); }
 }
-function save(){ S.last = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch {} }
+function save(){
+  if (!S || !player) return; // guests play in memory only
+  S.last = Date.now();
+  try { localStorage.setItem(acctKey(player), JSON.stringify(S)); } catch {}
+}
+function accounts(){ try { return JSON.parse(localStorage.getItem(ACCTS_KEY)) || []; } catch { return []; } }
+function saveAccounts(a){ try { localStorage.setItem(ACCTS_KEY, JSON.stringify(a)); } catch {} }
+function migrateLegacy(){ // pre-accounts saves become the "Player" account
+  try {
+    if (localStorage.getItem(ACCTS_KEY)) return;
+    if (!localStorage.getItem(SAVE_KEY) && !localStorage.getItem(SAVE_KEY_V1)) return;
+    const d = load(localStorage.getItem(SAVE_KEY)); // also absorbs a V1 save
+    localStorage.setItem(acctKey('Player'), JSON.stringify(d));
+    localStorage.removeItem(SAVE_KEY);
+    saveAccounts(['Player']);
+  } catch {}
+}
 
 /* ============================== math ===================================== */
 function fmt(n){
@@ -425,6 +457,7 @@ function buyAmount(i){
 function earn(x, wi = S.cur){ const w = W(wi); w.cash += x; w.run += x; w.earned += x; S.all += x; }
 
 function tap(ev){
+  if (!S) return;
   const p = clickPower();
   earn(p);
   S.taps++;
@@ -474,6 +507,7 @@ function unlockWorld(wi){
 }
 
 function doPrestige(){
+  if (!S) return;
   const gain = ringsFor(totalRun());
   if (gain < 1) return;
   if (!confirm(`Win the championship?\n\nYou gain ${gain} ring${gain>1?'s':''} (+${gain*5}% income forever, in every world).\nCash, businesses and upgrades reset in ALL worlds. Unlocked worlds stay unlocked.`)) return;
@@ -617,10 +651,10 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 }));
 
 /* =============================== boot ==================================== */
-S = load();
+migrateLegacy();
 
 // offline earnings — every unlocked world keeps producing
-(function offline(){
+function collectOffline(){
   const away = Math.min(OFFLINE_CAP, (Date.now() - (S.last || Date.now())) / 1000);
   if (away <= 60) return;
   const gains = WORLDS.map((_, i) => S.unlocked[i] ? worldRate(i) * away * OFFLINE_RATE : 0);
@@ -637,11 +671,87 @@ S = load();
   </div>`;
   ov.querySelector('button').addEventListener('click', () => { ov.remove(); });
   document.body.appendChild(ov);
-})();
+}
+
+/* ============================ accounts =================================== */
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function updateAcctUI(){
+  el('acctinfo').textContent = player
+    ? `Playing as ${player}. Your empire auto-saves to this browser.`
+    : 'Playing as guest — progress is lost when you close the tab.';
+  el('acctsave').style.display = player ? 'none' : '';
+  el('savenote').textContent = player
+    ? "Auto-saves to this browser every few seconds. Every world keeps earning while you're away (up to 8h, at 50% rate)."
+    : 'Guest mode — nothing is saved. Create an account in this tab to keep your empire.';
+}
+
+function createAccount(name){
+  name = (name || '').trim().slice(0, 20);
+  if (!name) return null;
+  const list = accounts();
+  if (!list.includes(name)){ list.push(name); saveAccounts(list); }
+  return name;
+}
+
+function startGame(name){
+  player = name;
+  S = load(name ? localStorage.getItem(acctKey(name)) : null);
+  collectOffline();
+  el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
+  updateAcctUI();
+  rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+  save();
+}
+
+function showStart(){
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal';
+  ov.appendChild(modal);
+  const begin = name => { ov.remove(); startGame(name); };
+  function menu(){
+    const list = accounts();
+    modal.innerHTML = `
+      <div style="font-size:2.4rem">🏀</div>
+      <h2>Hardwood Tycoon</h2>
+      <div class="btncol">
+        ${list.map((n, i) => `<button class="primary" data-acct="${i}">Continue as ${esc(n)}</button>`).join('')}
+        <button class="${list.length ? 'ghost' : 'primary'}" id="newacct">Create account</button>
+        <div>
+          <button class="ghost" id="guest" style="width:100%">Play as guest</button>
+          <p class="fineprint">your progress doesn’t save if you close the tab</p>
+        </div>
+      </div>`;
+    modal.querySelectorAll('[data-acct]').forEach(b =>
+      b.addEventListener('click', () => begin(accounts()[+b.dataset.acct])));
+    modal.querySelector('#newacct').addEventListener('click', form);
+    modal.querySelector('#guest').addEventListener('click', () => begin(null));
+  }
+  function form(){
+    modal.innerHTML = `
+      <div style="font-size:2.4rem">🏀</div>
+      <h2>Create account</h2>
+      <p class="dim">Your empire is saved under this name — in this browser, on this device.</p>
+      <input id="acctname" maxlength="20" placeholder="Your name" autocomplete="off">
+      <div class="btncol">
+        <button class="primary" id="go">Start playing</button>
+        <button class="ghost" id="back">Back</button>
+      </div>`;
+    const inp = modal.querySelector('#acctname');
+    const go = () => { const n = createAccount(inp.value); if (n) begin(n); else inp.focus(); };
+    modal.querySelector('#go').addEventListener('click', go);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    modal.querySelector('#back').addEventListener('click', menu);
+    inp.focus();
+  }
+  menu();
+  document.body.appendChild(ov);
+}
 
 el('tap').addEventListener('click', tap);
 window.addEventListener('keydown', ev => {
   if (ev.code !== 'Space' || ev.repeat) return; // one tap per press, no key-hold autofire
+  if (!S || /INPUT|TEXTAREA/.test(ev.target.tagName)) return; // don't hijack typing
   ev.preventDefault();
   tap(ev);
   const b = el('tap');
@@ -649,19 +759,35 @@ window.addEventListener('keydown', ev => {
   setTimeout(() => b.classList.remove('pressed'), 90);
 });
 el('buymode').addEventListener('click', () => {
+  if (!S) return;
   S.buyIdx = (S.buyIdx + 1) % BUY_MODES.length;
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx].lbl;
   paint();
 });
-el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
 el('prestige').addEventListener('click', doPrestige);
 el('hardreset').addEventListener('click', () => {
+  if (!S) return;
   if (!confirm('Wipe EVERYTHING — every world, cash, businesses, upgrades AND rings?')) return;
   if (!confirm('Really? This cannot be undone.')) return;
   S = freshState(); save(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
 });
+el('acctsave').addEventListener('click', () => {
+  if (!S || player) return;
+  const raw = (prompt('Account name?') || '').trim().slice(0, 20);
+  if (!raw) return;
+  if (accounts().includes(raw) && !confirm(`"${raw}" already exists — overwrite it with your current game?`)) return;
+  player = createAccount(raw);
+  save(); updateAcctUI();
+});
+el('switchbtn').addEventListener('click', () => {
+  if (!S) return;
+  if (!player && S.all > 0 && !confirm('Leave your guest game? Its progress will be lost.')) return;
+  save();
+  S = null; player = null;
+  showStart();
+});
 
-rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+showStart();
 
 // game loop: 4 ticks/sec income for every unlocked world, repaint each tick
 let lastTick = performance.now();
@@ -669,6 +795,7 @@ setInterval(() => {
   const now = performance.now();
   const dt = Math.min(2, (now - lastTick) / 1000);
   lastTick = now;
+  if (!S) return;
   WORLDS.forEach((_, i) => {
     if (!S.unlocked[i]) return;
     const r = worldRate(i);

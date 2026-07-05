@@ -8,7 +8,7 @@ An idle basketball tycoon game in a single HTML file. Build a hoops empire from 
 - **40+ upgrades** and milestone bonuses as you grow
 - **Prestige** to earn championship rings that boost future runs
 - **Offline earnings** — your empire keeps working while you're away
-- Progress saves automatically to your browser's localStorage
+- Create an account (a named save profile in your browser) or play as guest — guest progress doesn't save if you close the tab
 
 ## Play
 
