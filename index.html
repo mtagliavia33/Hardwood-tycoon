@@ -724,6 +724,52 @@ function updateAcctUI(){
 // this device sets the owner passcode (stored hashed). Admins are account
 // names the owner promotes — they get the money tools but not the account list.
 const ADMIN_KEY = 'hardwoodTycoonAdmin';
+
+/* ---- online sync (optional Railway server) ---- */
+// When the game is served by server.mjs, the same origin is used automatically.
+// For the GitHub Pages copy, set SYNC_URL to the Railway URL so its players sync too.
+const SYNC_URL = '';
+let serverOn = false;
+function apiRoot(){
+  if (SYNC_URL) return SYNC_URL.replace(/\/+$/, '');
+  return location.protocol.startsWith('http') ? '' : null;
+}
+async function api(path, opts = {}){
+  const root = apiRoot();
+  if (root === null) throw new Error('no server');
+  const r = await fetch(root + path, { ...opts, headers: { 'content-type': 'application/json', ...(opts.headers || {}) } });
+  if (!r.ok) throw Object.assign(new Error('server error ' + r.status), { status: r.status });
+  return r.json();
+}
+async function checkServer(){
+  try { serverOn = (await api('/api/ping')).ok === true && true; }
+  catch { serverOn = false; }
+  return serverOn;
+}
+function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
+async function syncTick(){ // report my stats, pick up commands aimed at me
+  if (!S || !player || !serverOn) return;
+  try {
+    await api('/api/report', { method: 'POST', body: JSON.stringify({
+      name: player, cash: totalCash(), all: S.all, playtime: S.playtime,
+      peakRate: S.peakRate, rings: S.rings, prestiges: S.prestiges }) });
+    const r = await api('/api/commands?name=' + encodeURIComponent(player));
+    const d = adminData(), has = (d.admins || []).includes(player);
+    if (r.admin !== has){
+      d.admins = r.admin ? (d.admins || []).concat(player) : (d.admins || []).filter(x => x !== player);
+      saveAdmin(d);
+    }
+    let touched = false;
+    for (const c of r.commands || []){
+      if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
+      if (c.reset === true){ S = freshState(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
+    }
+    if (touched){ paint(); save(); }
+  } catch {}
+}
+checkServer().then(syncTick);
+setInterval(syncTick, 30000);
+
 const pinHash = s => { let h = 5381; for (const c of s) h = (h * 33 ^ c.charCodeAt(0)) >>> 0; return String(h); };
 function adminData(){ try { return JSON.parse(localStorage.getItem(ADMIN_KEY)) || {}; } catch { return {}; } }
 function saveAdmin(d){ try { localStorage.setItem(ADMIN_KEY, JSON.stringify(d)); } catch {} }
@@ -741,9 +787,22 @@ function admResetMoney(){
   paint(); save();
 }
 
-function openAdmin(){
+async function openAdmin(){
   el('acctdrop').style.display = 'none';
   if (!S) return;
+  await checkServer();
+  if (serverOn){ // server mode: the ADMIN_KEY on the server is the owner passcode
+    if (isAdmin()){ adminPanel(false); return; }
+    const p = prompt('Owner passcode:');
+    if (p === null || !p.trim()) return;
+    try {
+      const data = await api('/api/players', { headers: { 'x-admin-key': p } });
+      adminPanelServer(p, data);
+    } catch (e) {
+      alert(e.status === 401 ? 'Wrong passcode.' : e.status === 503 ? 'The server has no ADMIN_KEY set yet.' : 'Could not reach the server.');
+    }
+    return;
+  }
   const d = adminData();
   if (!d.ownerHash){
     const p1 = prompt('First-time setup — choose an owner passcode.\nOnly the owner sees all accounts and grants admin:') || '';
@@ -823,6 +882,68 @@ function adminPanel(owner){
         render();
       }));
     }
+  }
+  render();
+  document.body.appendChild(ov);
+}
+
+function timeAgo(t){
+  const s = Math.max(0, (Date.now() - (t || 0)) / 1000);
+  if (s < 90) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function adminPanelServer(key, data){ // owner view over the whole game, all devices
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal';
+  modal.style.maxWidth = '520px'; modal.style.textAlign = 'left';
+  ov.appendChild(modal);
+  const post = (name, cmd) => api('/api/command', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ name, cmd }) });
+  const refresh = async () => {
+    try { data = await api('/api/players', { headers: { 'x-admin-key': key } }); } catch {}
+    render();
+  };
+  function render(){
+    const names = Object.keys(data.players || {}).sort((a, b) => (data.players[b].lastSeen || 0) - (data.players[a].lastSeen || 0));
+    const rows = names.map((n, i) => {
+      const p = data.players[n], adm = (data.admins || []).includes(n);
+      return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
+        <span><b>${$$(p.cash || 0)}</b><button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button></span></div>`;
+    }).join('') || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
+    modal.innerHTML = `
+      <h2 style="text-align:center">🛠️ Admin panel — owner</h2>
+      <p class="dim" style="text-align:center">Whole game, every device · signed in as ${esc(player || 'Guest')}</p>
+      <div class="btncol">
+        <button class="primary" id="adm-give">💵 Give myself money…</button>
+        <button class="danger" id="adm-zero" style="width:100%">Reset my money to $0</button>
+      </div>
+      <h3 style="margin-top:18px">All accounts</h3>${rows}
+      <p class="dim">Changes reach other devices within ~30 seconds while their game is open.</p>
+      <div class="btncol"><button class="ghost" id="adm-refresh">Refresh list</button><button class="ghost" id="adm-close">Close</button></div>`;
+    modal.querySelector('#adm-give').addEventListener('click', () => { admGiveMoney(); syncTick().then(refresh); });
+    modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); syncTick().then(refresh); });
+    modal.querySelector('#adm-refresh').addEventListener('click', refresh);
+    modal.querySelector('#adm-close').addEventListener('click', () => ov.remove());
+    modal.querySelectorAll('[data-g]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.g];
+      const amt = parseFloat(prompt(`How much money to give ${n}?`) || '');
+      if (!isFinite(amt) || amt <= 0) return;
+      try { await post(n, { give: amt }); await syncTick(); } catch { alert('Could not reach the server.'); }
+      refresh();
+    }));
+    modal.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.a];
+      try { await post(n, { admin: !(data.admins || []).includes(n) }); await syncTick(); } catch { alert('Could not reach the server.'); }
+      refresh();
+    }));
+    modal.querySelectorAll('[data-r]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.r];
+      if (!confirm(`Completely reset ${n} everywhere? Money, rings, prestiges and stats all go to zero and they lose every leaderboard spot. This cannot be undone.`)) return;
+      try { await post(n, { reset: true }); await syncTick(); } catch { alert('Could not reach the server.'); }
+      refresh();
+    }));
   }
   render();
   document.body.appendChild(ov);

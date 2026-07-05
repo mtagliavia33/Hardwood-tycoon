@@ -15,3 +15,13 @@ An idle basketball tycoon game in a single HTML file. Build a hoops empire from 
 ▶ **[Play in your browser](https://mtagliavia33.github.io/Hardwood-tycoon/)**
 
 Or download `index.html` and open it locally — the whole game is one self-contained file, no build or server needed.
+
+## Optional sync server (Railway)
+
+`server.mjs` is a dependency-free Node server that serves the game and adds cross-device admin:
+devices report their accounts to it, and the in-game admin panel (👤 menu) shows every account
+across the whole game with give-money / reset / grant-admin controls.
+
+Deploy on [Railway](https://railway.app): new project → deploy this repo → set the `ADMIN_KEY`
+variable to your owner passcode → attach a volume at `/data` so player data survives redeploys.
+The Railway URL then serves a fully synced copy of the game.
