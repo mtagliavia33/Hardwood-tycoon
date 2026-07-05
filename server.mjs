@@ -137,7 +137,10 @@ const server = http.createServer(async (req, res) => {
     if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     const players = {};
-    for (const [name, a] of Object.entries(db.accounts)) players[name] = { ...statsOf(a.save), lastSeen: a.lastSeen };
+    for (const [name, a] of Object.entries(db.accounts)) players[name] = {
+      ...statsOf(a.save), lastSeen: a.lastSeen,
+      pending: (db.commands[name] || []).reduce((t, c) => t + num(c.give), 0), // queued gives not yet collected
+    };
     return send(res, 200, { players, admins: db.admins });
   }
 

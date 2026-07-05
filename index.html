@@ -142,7 +142,8 @@ main{padding:14px 14px 30px}
 .overlay{position:fixed;inset:0;background:rgba(5,8,15,.75);backdrop-filter:blur(4px);z-index:50;
   display:flex;align-items:center;justify-content:center;padding:20px}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px;max-width:380px;text-align:center;
-  box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  box-shadow:0 20px 60px rgba(0,0,0,.6);max-height:min(85vh,85dvh);overflow-y:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch}
 .modal .primary{margin-top:14px}
 .modal .btncol{display:flex;flex-direction:column;gap:10px;margin-top:16px}
 .modal .btncol button{width:100%}
@@ -928,13 +929,17 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     try { data = await api('/api/players', { headers: { 'x-admin-key': key } }); } catch {}
     render();
   };
+  let showAll = false;
   function render(){
     const names = Object.keys(data.players || {}).sort((a, b) => (data.players[b].lastSeen || 0) - (data.players[a].lastSeen || 0));
-    const rows = names.map((n, i) => {
+    const visible = showAll ? names : names.slice(0, 5);
+    const rows = visible.map((n, i) => {
       const p = data.players[n], adm = (data.admins || []).includes(n);
       return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
-        <span><b>${$$(p.cash || 0)}</b><button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button></span></div>`;
-    }).join('') || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
+        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button></span></div>`;
+    }).join('') + (names.length > visible.length
+      ? `<button class="ghost" id="adm-showall" style="width:100%;margin-top:10px">Show all ${names.length} accounts</button>` : '')
+      || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
     modal.innerHTML = `
       <h2 style="text-align:center">🛠️ Admin panel — owner</h2>
       <p class="dim" style="text-align:center">Whole game, every device · signed in as ${esc(player || 'Guest')}</p>
@@ -942,9 +947,11 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
         <button class="primary" id="adm-give">💵 Give myself money…</button>
         <button class="danger" id="adm-zero" style="width:100%">Reset my money to $0</button>
       </div>
-      <h3 style="margin-top:18px">All accounts</h3>${rows}
+      <h3 style="margin-top:18px">All accounts (${names.length})</h3>${rows}
       <p class="dim">Changes reach other devices within ~30 seconds while their game is open.</p>
       <div class="btncol"><button class="ghost" id="adm-refresh">Refresh list</button><button class="ghost" id="adm-close">Close</button></div>`;
+    const sa = modal.querySelector('#adm-showall');
+    if (sa) sa.addEventListener('click', () => { showAll = true; render(); });
     modal.querySelector('#adm-give').addEventListener('click', () => { admGiveMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-refresh').addEventListener('click', refresh);
