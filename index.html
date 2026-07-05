@@ -778,7 +778,7 @@ function adminPanel(owner){
         } catch {}
         const adm = (d.admins || []).includes(n);
         return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★ admin</span>' : ''}</span>
-          <span><b>${$$(cash)}</b><button class="ghost mini" data-adm="${i}">${adm ? 'Remove admin' : 'Make admin'}</button></span></div>`;
+          <span><b>${$$(cash)}</b><button class="ghost mini" data-give="${i}">💵 Give…</button><button class="ghost mini" data-adm="${i}">${adm ? 'Remove admin' : 'Make admin'}</button></span></div>`;
       }).join('') || '<p class="dim">No accounts yet.</p>';
     }
     modal.innerHTML = `
@@ -795,11 +795,26 @@ function adminPanel(owner){
     modal.querySelector('#adm-give').addEventListener('click', () => { admGiveMoney(); render(); });
     modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); render(); });
     modal.querySelector('#adm-close').addEventListener('click', () => ov.remove());
-    if (owner) modal.querySelectorAll('[data-adm]').forEach(b => b.addEventListener('click', () => {
-      const n = names[+b.dataset.adm], dd = adminData();
-      dd.admins = (dd.admins || []).includes(n) ? dd.admins.filter(x => x !== n) : (dd.admins || []).concat(n);
-      saveAdmin(dd); render();
-    }));
+    if (owner){
+      modal.querySelectorAll('[data-adm]').forEach(b => b.addEventListener('click', () => {
+        const n = names[+b.dataset.adm], dd = adminData();
+        dd.admins = (dd.admins || []).includes(n) ? dd.admins.filter(x => x !== n) : (dd.admins || []).concat(n);
+        saveAdmin(dd); render();
+      }));
+      modal.querySelectorAll('[data-give]').forEach(b => b.addEventListener('click', () => {
+        const n = names[+b.dataset.give];
+        const amt = parseFloat(prompt(`How much money to give ${n}? (goes to their current world)`) || '');
+        if (!isFinite(amt) || amt <= 0) return;
+        if (player === n){ W().cash += amt; paint(); save(); }
+        else try {
+          const s = JSON.parse(localStorage.getItem(acctKey(n)));
+          if (!s || !s.worlds) return;
+          s.worlds[s.cur || 0].cash += amt;
+          localStorage.setItem(acctKey(n), JSON.stringify(s));
+        } catch {}
+        render();
+      }));
+    }
   }
   render();
   document.body.appendChild(ov);
