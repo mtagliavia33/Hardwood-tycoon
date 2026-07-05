@@ -160,6 +160,7 @@ main{padding:14px 14px 30px}
     <button class="tab on" data-tab="empire">Empire</button>
     <button class="tab" data-tab="upgrades">Upgrades<span class="pip" id="upg-pip" style="display:none"></span></button>
     <button class="tab" data-tab="prestige">🏆 Prestige</button>
+    <button class="tab" data-tab="leaders">🏅 Leaderboard</button>
     <button class="tab" data-tab="stats">Stats</button>
   </div>
 
@@ -201,6 +202,13 @@ main{padding:14px 14px 30px}
         <div class="statrow"><span>Next ring at</span><b id="p-next">$0</b></div>
         <button class="primary" id="prestige" disabled>🏆 Prestige</button>
       </div>
+    </section>
+
+    <section id="tab-leaders" style="display:none">
+      <p class="dim">Rankings for every player saved in this browser. Guest runs count while the tab is open.</p>
+      <div class="panel"><h3>⏱️ Most time played</h3><div id="lb-time"></div></div>
+      <div class="panel"><h3>💰 Most money earned</h3><div id="lb-money"></div></div>
+      <div class="panel"><h3>⚡ Most money made in a second</h3><div id="lb-rate"></div></div>
     </section>
 
     <section id="tab-stats" style="display:none">
@@ -343,14 +351,15 @@ function freshRunState(){ // what prestige resets (worlds stay unlocked)
 }
 function freshState(){
   return { ...freshRunState(), unlocked:WORLDS.map((_, i) => i === 0),
-           all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now() };
+           all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
+           playtime:0, peakRate:0 };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = JSON.parse(raw);
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -641,13 +650,15 @@ function paint(){
   el('s-taps').textContent = S.taps.toLocaleString();
   el('s-prest').textContent = S.prestiges;
   el('s-rings').textContent = S.rings;
+  if (el('tab-leaders').style.display !== 'none') renderLeaders();
 }
 
 /* =============================== tabs ==================================== */
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-  for (const sec of ['empire','upgrades','prestige','stats'])
+  for (const sec of ['empire','upgrades','prestige','leaders','stats'])
     el('tab-' + sec).style.display = t.dataset.tab === sec ? '' : 'none';
+  if (t.dataset.tab === 'leaders' && S) renderLeaders();
 }));
 
 /* =============================== boot ==================================== */
@@ -684,6 +695,37 @@ function updateAcctUI(){
   el('savenote').textContent = player
     ? "Auto-saves to this browser every few seconds. Every world keeps earning while you're away (up to 8h, at 50% rate)."
     : 'Guest mode — nothing is saved. Create an account in this tab to keep your empire.';
+}
+
+/* ========================== leaderboards ================================= */
+function fmtTime(sec){
+  sec = Math.floor(sec || 0);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
+}
+function leaderRows(){
+  const rows = [];
+  for (const n of accounts()){
+    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate }); continue; }
+    try {
+      const s = JSON.parse(localStorage.getItem(acctKey(n)));
+      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0 });
+    } catch {}
+  }
+  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate });
+  return rows;
+}
+function renderBoard(id, rows, val){
+  const medals = ['🥇','🥈','🥉'];
+  el(id).innerHTML = rows.map((r, i) =>
+    `<div class="statrow"><span>${medals[i] || (i + 1) + '.'} ${esc(r.name)}${r.you ? ' <span class="dim">(you)</span>' : ''}</span><b>${val(r)}</b></div>`
+  ).join('') || '<p class="dim">No players yet — create an account and start earning.</p>';
+}
+function renderLeaders(){
+  const rows = leaderRows();
+  renderBoard('lb-time',  rows.slice().sort((a, b) => b.time  - a.time),  r => fmtTime(r.time));
+  renderBoard('lb-money', rows.slice().sort((a, b) => b.money - a.money), r => $$(r.money));
+  renderBoard('lb-rate',  rows.slice().sort((a, b) => b.rate  - a.rate),  r => $$(r.rate) + '/sec');
 }
 
 function createAccount(name){
@@ -796,11 +838,15 @@ setInterval(() => {
   const dt = Math.min(2, (now - lastTick) / 1000);
   lastTick = now;
   if (!S) return;
+  S.playtime += dt;
+  let totalRate = 0;
   WORLDS.forEach((_, i) => {
     if (!S.unlocked[i]) return;
     const r = worldRate(i);
+    totalRate += r;
     if (r > 0) earn(r * dt, i);
   });
+  if (totalRate > S.peakRate) S.peakRate = totalRate;
   paint();
 }, 250);
 setInterval(save, 5000);
