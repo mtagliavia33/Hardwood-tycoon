@@ -163,6 +163,7 @@ main{padding:14px 14px 30px}
         <div class="acctdrop" id="acctdrop" style="display:none">
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
+          <button id="renamebtn">Change account name</button>
         </div>
       </div>
     </div>
@@ -706,6 +707,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 
 function updateAcctUI(){
   el('acctlbl').textContent = player || 'Guest';
+  el('renamebtn').style.display = player ? '' : 'none'; // guests have no account to rename
   el('acctinfo').textContent = player
     ? `Playing as ${player}. Your empire auto-saves to this browser.`
     : 'Playing as guest — progress is lost when you close the tab.';
@@ -856,6 +858,21 @@ document.addEventListener('click', e => {
 });
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
+el('renamebtn').addEventListener('click', () => {
+  el('acctdrop').style.display = 'none';
+  if (!S || !player) return;
+  const n = (prompt(`New name for ${player}?`, player) || '').trim().slice(0, 20);
+  if (!n || n === player) return;
+  if (accounts().includes(n)){ alert(`"${n}" is already taken by another account.`); return; }
+  saveAccounts(accounts().map(x => x === player ? n : x));
+  try {
+    const raw = localStorage.getItem(acctKey(player));
+    if (raw !== null) localStorage.setItem(acctKey(n), raw);
+    localStorage.removeItem(acctKey(player));
+  } catch {}
+  player = n;
+  save(); updateAcctUI(); paint();
+});
 
 showStart();
 
