@@ -214,8 +214,9 @@ const server = http.createServer(async (req, res) => {
     if (typeof b.cmd.message === 'string' && b.cmd.message.trim()) cmd.message = b.cmd.message.trim().slice(0, 500);
     if (typeof b.cmd.admin === 'boolean') db.admins = b.cmd.admin
       ? [...new Set([...db.admins, name])] : db.admins.filter(x => x !== name);
-    // reset is idempotent: wipe the stored save now AND queue it for a live session
-    if (cmd.reset) db.accounts[name].save = null;
+    // reset wipes the stored save now AND queues it for a live session, but
+    // keeps the player's pet collection (pets are permanent).
+    if (cmd.reset){ const old = db.accounts[name].save; db.accounts[name].save = (old && old.pets) ? { pets: old.pets } : null; }
     if (Object.keys(cmd).length) (db.commands[name] = db.commands[name] || []).push(cmd);
     persist();
     return send(res, 200, { ok: true });

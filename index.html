@@ -1030,7 +1030,7 @@ function applyServerFlags(r){ // admin flag + queued commands from any /api resp
   let touched = false; const msgs = [];
   for (const c of r.commands || []){
     if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
-    if (c.reset === true){ S = freshState(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
+    if (c.reset === true){ const keptPets = S.pets; S = freshState(); S.pets = keptPets || {}; rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
     if (typeof c.message === 'string' && c.message) msgs.push(c.message);
   }
   if (touched){ paint(); save(); }
@@ -1727,9 +1727,11 @@ el('prestige').addEventListener('click', doPrestige);
 el('packbtn').addEventListener('click', () => { const res = openPack(); if (res){ revealPet(res); renderPets(); } });
 el('hardreset').addEventListener('click', () => {
   if (!S) return;
-  if (!confirm('Wipe EVERYTHING — every world, cash, businesses, upgrades AND rings?')) return;
+  if (!confirm('Wipe EVERYTHING — every world, cash, businesses, upgrades AND rings? (Your pets are kept.)')) return;
   if (!confirm('Really? This cannot be undone.')) return;
-  S = freshState(); save(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+  const keptPets = S.pets;
+  S = freshState(); S.pets = keptPets || {};
+  save(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
 });
 el('acctsave').addEventListener('click', async () => {
   if (!S || player) return;
