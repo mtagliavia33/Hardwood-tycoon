@@ -1229,6 +1229,41 @@ function timeAgo(t){
   return Math.floor(s / 86400) + 'd ago';
 }
 
+function editAnnouncement(key, current, after){
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left';
+  const DUR = [['1 hour', 3600e3], ['6 hours', 21600e3], ['1 day', 86400e3], ['3 days', 259200e3], ['1 week', 604800e3], ['Until I clear it', 0]];
+  modal.innerHTML = `
+    <div style="font-size:2.2rem;text-align:center">📣</div>
+    <h2 style="text-align:center">Announcement</h2>
+    <textarea id="ann-text" maxlength="300" rows="3" placeholder="What everyone sees scrolling…">${esc((current && current.text) || '')}</textarea>
+    <p class="dim" style="margin-top:12px">Show it for:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${DUR.map(([l, ms]) => `<button class="ghost sportbtn" data-ms="${ms}">${l}</button>`).join('')}</div>
+    <p class="dim" style="margin-top:12px">…or until a specific date & time:</p>
+    <input id="ann-until" type="datetime-local">
+    <div class="btncol"><button class="primary" id="ann-untilset">Set until that time</button><button class="ghost" id="ann-cancel">Cancel</button></div>
+    <p class="fineprint" id="ann-err" style="color:var(--bad)"></p>`;
+  ov.appendChild(modal);
+  const ta = modal.querySelector('#ann-text'), err = t => { modal.querySelector('#ann-err').textContent = t; };
+  const send = async until => {
+    const text = ta.value.trim();
+    if (!text) return err('Type the announcement first.');
+    try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text, until }) }); }
+    catch { return err('Could not reach the server.'); }
+    ov.remove(); after && after();
+  };
+  modal.querySelectorAll('[data-ms]').forEach(b => b.addEventListener('click', () => { const ms = +b.dataset.ms; send(ms > 0 ? Date.now() + ms : 0); }));
+  modal.querySelector('#ann-untilset').addEventListener('click', () => {
+    const v = modal.querySelector('#ann-until').value;
+    const t = v ? new Date(v).getTime() : 0;
+    if (!t || isNaN(t) || t <= Date.now()) return err('Pick a future date & time.');
+    send(t);
+  });
+  modal.querySelector('#ann-cancel').addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
+  ta.focus();
+}
+
 function adminPanelServer(key, data){ // owner view over the whole game, all devices
   const ov = document.createElement('div'); ov.className = 'overlay';
   const modal = document.createElement('div'); modal.className = 'modal';
@@ -1243,10 +1278,17 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
   };
   let showAll = false, showInbox = false;
   function announceHtml(){
-    const cur = (data.announcement && data.announcement.text) || '';
+    const a = data.announcement || {}, cur = a.text || '';
+    let when = '';
+    if (cur){
+      if (a.until) when = a.until <= Date.now()
+        ? '<div class="dim" style="font-size:.72rem">⚠️ expired — not showing anymore</div>'
+        : `<div class="dim" style="font-size:.72rem">Showing until ${new Date(a.until).toLocaleString()}</div>`;
+      else when = '<div class="dim" style="font-size:.72rem">Showing until you clear it</div>';
+    }
     return `<h3 style="margin-top:18px">📣 Announcement</h3>
-      <p class="dim">${cur ? 'Everyone sees this once when they log in:' : 'No announcement set.'}</p>
-      ${cur ? `<div class="msg">${esc(cur)}</div>` : ''}
+      <p class="dim">${cur ? 'Scrolling ticker everyone sees:' : 'No announcement set.'}</p>
+      ${cur ? `<div class="msg">${esc(cur)}${when}</div>` : ''}
       <div class="btncol"><button class="ghost" id="ann-set">${cur ? 'Change announcement' : 'Set announcement'}</button>${cur ? '<button class="ghost" id="ann-clear" style="border-color:var(--bad);color:var(--bad)">Clear</button>' : ''}</div>`;
   }
   function inboxHtml(){
@@ -1299,12 +1341,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
       refresh();
     });
     const as = modal.querySelector('#ann-set');
-    if (as) as.addEventListener('click', async () => {
-      const text = (prompt('Announcement text — everyone sees this on login:', (data.announcement && data.announcement.text) || '') || '').trim();
-      if (!text) return;
-      try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text }) }); } catch { alert('Could not reach the server.'); }
-      refresh();
-    });
+    if (as) as.addEventListener('click', () => editAnnouncement(key, data.announcement, refresh));
     const ac = modal.querySelector('#ann-clear');
     if (ac) ac.addEventListener('click', async () => {
       try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text: '' }) }); } catch {}

@@ -12,7 +12,13 @@ const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0 } };
+let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 } };
+// active announcement: blanks out the text once its 'until' time has passed
+function activeAnnouncement(){
+  const a = db.announcement || { text: '', id: 0, at: 0, until: 0 };
+  if (a.text && a.until && Date.now() > a.until) return { text: '', id: a.id, at: a.at, until: a.until };
+  return a;
+}
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch {}
 
 let saveTimer = null;
@@ -161,7 +167,7 @@ const server = http.createServer(async (req, res) => {
       const s = statsOf(a.save);
       return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, lastSeen: a.lastSeen };
     });
-    return send(res, 200, { rows, announcement: db.announcement });
+    return send(res, 200, { rows, announcement: activeAnnouncement() });
   }
 
   // owner: every account in the game
@@ -182,7 +188,8 @@ const server = http.createServer(async (req, res) => {
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     const b = await readBody(req);
     const text = (typeof (b && b.text) === 'string' ? b.text : '').trim().slice(0, 300);
-    db.announcement = { text, id: (db.announcement.id || 0) + 1, at: Date.now() };
+    const until = num(b && b.until);   // absolute ms timestamp; 0 = until manually cleared
+    db.announcement = { text, id: (db.announcement.id || 0) + 1, at: Date.now(), until: until > 0 ? until : 0 };
     persist();
     return send(res, 200, { ok: true, announcement: db.announcement });
   }
