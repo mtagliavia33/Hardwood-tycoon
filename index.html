@@ -552,7 +552,7 @@ function bizMult(i, wi = S.cur){
   return m;
 }
 function bizRate(i, wi = S.cur){ return WD(wi).biz[i].rev * W(wi).counts[i] * bizMult(i, wi) * allMult(wi); }
-function worldRate(wi = S.cur){ let t = 0; for (let i = 0; i < WD(wi).biz.length; i++) t += bizRate(i, wi); return t; }
+function worldRate(wi = S.cur){ let t = 0; for (let i = 0; i < WD(wi).biz.length; i++) t += bizRate(i, wi); return t * boostMult(); }
 function clickPower(wi = S.cur){
   let m = 1, pct = 0;
   for (const u of WD(wi).ups){
@@ -560,7 +560,7 @@ function clickPower(wi = S.cur){
     if (u.type === 'click') m *= u.mult;
     if (u.type === 'clickpct') pct += u.pct;
   }
-  return WD(wi).clickBase * m * ringMult() + pct * worldRate(wi);
+  return WD(wi).clickBase * m * ringMult() * boostMult() + pct * worldRate(wi); // worldRate already boosted
 }
 // cost of the next n units of business i in the current world (geometric series)
 function costOf(i, n, wi = S.cur){
@@ -910,19 +910,32 @@ async function checkServer(){
 }
 function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 
-// scrolling announcement ticker — stays visible for a set time, then hides
-const ANNOUNCE_SECONDS = 30;     // how long the banner stays up each time
-let announceShownId = 0, tickerTimer = null;
+// persistent scrolling ticker: always shows the 4x-boost schedule, plus the
+// owner's announcement (if any) in front of it.
+let manualAnnounce = null, tickerText = null;
+function boostActive(){ const d = new Date().getDay(); return d === 0 || d === 3; } // Sun & Wed
+function boostMult(){ return boostActive() ? 4 : 1; }
+function scheduleTickerText(){
+  const d = new Date().getDay();
+  if (d === 3) return '🔥 4x BOOST ACTIVE — Wacky Wednesday!';
+  if (d === 0) return '🔥 4x BOOST ACTIVE — happy Sunday!';
+  if (d === 1 || d === 2) return '4x boost on wacky Wednesday';
+  return '4x boost on Sunday';           // Thu / Fri / Sat
+}
 function showTicker(text){
+  if (text === tickerText) return;       // unchanged → keep the current scroll going
+  tickerText = text;
   const bar = el('ticker'), inner = bar.querySelector('.ticker-inner');
   el('ticker-text').textContent = text;
-  inner.style.animationDuration = Math.max(12, Math.min(45, text.length * 0.4)) + 's'; // longer text scrolls slower
+  inner.style.animationDuration = Math.max(12, Math.min(45, text.length * 0.4)) + 's';
   bar.style.display = '';
-  void inner.offsetWidth;          // restart the scroll animation
-  clearTimeout(tickerTimer);
-  tickerTimer = setTimeout(hideTicker, ANNOUNCE_SECONDS * 1000);
+  void inner.offsetWidth;                // (re)start the scroll animation
 }
-function hideTicker(){ clearTimeout(tickerTimer); el('ticker').style.display = 'none'; }
+function updateTicker(){
+  const sched = scheduleTickerText();
+  const manual = (manualAnnounce && manualAnnounce.text) ? manualAnnounce.text : '';
+  showTicker(manual ? manual + ' • ' + sched : sched);
+}
 
 // online accounts: remembered {name: pin} sessions on this device
 const SESS_KEY = 'hardwoodTycoonSessions';
@@ -967,13 +980,8 @@ async function syncTick(){ // push my save to the server, pick up commands
     try {
       const lb = await api('/api/leaderboard');
       lbOnline = lb.rows;
-      const a = lb.announcement;
-      if (a && a.id && a.text && a.id !== announceShownId){
-        announceShownId = a.id;        // in-memory: re-shows each session / when it changes, not once ever
-        showTicker(a.text);
-      } else if (a && (!a.id || !a.text)){
-        hideTicker();                  // announcement cleared
-      }
+      manualAnnounce = lb.announcement || null;
+      updateTicker();
       checkPodium();                   // daily top-3 reward once the board is loaded
     } catch {}
   }
@@ -1448,6 +1456,7 @@ function startGame(name, remoteSave){
   S = load(remoteSave !== undefined ? remoteSave : (name ? localStorage.getItem(acctKey(name)) : null));
   applySport(S.sport || 'basketball');
   renderGiveRow();
+  updateTicker();       // show the boost ticker right away
   sessionSeconds = 0;   // fresh session for this player
   collectOffline();
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
@@ -1710,6 +1719,7 @@ setInterval(() => {
     if (r > 0) earn(r * dt, i);
   });
   if (totalRate > S.peakRate) S.peakRate = totalRate;
+  updateTicker();   // catches the day rolling over into/out of a boost day
   paint();
 }, 250);
 setInterval(save, 5000);
