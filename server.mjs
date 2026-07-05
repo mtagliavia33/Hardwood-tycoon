@@ -82,8 +82,11 @@ const server = http.createServer(async (req, res) => {
     if (!name) return send(res, 400, { error: 'Pick a name first.' });
     if (typeof (b && b.pin) !== 'string' || b.pin.length < 4) return send(res, 400, { error: 'PIN must be at least 4 characters.' });
     if (db.accounts[name]) return send(res, 409, { error: 'That name is taken — log in instead, or pick another.' });
+    const device = typeof (b && b.device) === 'string' ? b.device.slice(0, 64) : '';
+    if (device && Object.values(db.accounts).filter(a => a.device === device).length >= 3)
+      return send(res, 403, { error: 'This device already has 3 accounts — that\'s the max.' });
     db.accounts[name] = { pin: hash(b.pin), save: (b.save && typeof b.save === 'object') ? b.save : null,
-      created: Date.now(), lastSeen: Date.now() };
+      device, created: Date.now(), lastSeen: Date.now() };
     persist();
     return send(res, 200, { ok: true, save: db.accounts[name].save, admin: db.admins.includes(name) });
   }

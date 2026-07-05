@@ -454,14 +454,14 @@ function freshRunState(){ // what prestige resets — worlds lock again, back to
 function freshState(){
   return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
-           playtime:0, peakRate:0 };
+           playtime:0, peakRate:0, lastDaily:0 };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -769,24 +769,43 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 /* =============================== boot ==================================== */
 migrateLegacy();
 
-// offline earnings — every unlocked world keeps producing
+// welcome-back: daily login bonus (20% of cash, once per calendar day) +
+// offline earnings, shown together in one popup.
+const dayStamp = (d = new Date()) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 function collectOffline(){
+  let daily = 0;
+  const today = dayStamp();
+  if (S.lastDaily !== today){
+    daily = totalCash() * 0.20;   // 20% of what you have on hand
+    S.lastDaily = today;
+    if (daily > 0) W().cash += daily;
+  }
   const away = Math.min(OFFLINE_CAP, (Date.now() - (S.last || Date.now())) / 1000);
-  if (away <= 60) return;
-  const gains = WORLDS.map((_, i) => S.unlocked[i] ? worldRate(i) * away * OFFLINE_RATE : 0);
-  if (!gains.some(g => g > 0)) return;
-  gains.forEach((g, i) => { if (g > 0) earn(g, i); });
-  const lines = gains.map((g, i) => g > 0 ? `${WORLDS[i].emoji} ${$$(g)}` : null).filter(Boolean).join(' &nbsp;·&nbsp; ');
+  const gains = away > 60 ? WORLDS.map((_, i) => S.unlocked[i] ? worldRate(i) * away * OFFLINE_RATE : 0) : [];
+  const gotOffline = gains.some(g => g > 0);
+  if (gotOffline) gains.forEach((g, i) => { if (g > 0) earn(g, i); });
+
+  if (!daily && !gotOffline){ save(); return; }
+
+  let html = '';
+  if (daily > 0){
+    html += `<div style="font-size:2.4rem">🎁</div>
+      <h2>Daily login bonus</h2>
+      <p class="dim">Welcome back! Here's <b>20%</b> of your cash for logging in today.</p>
+      <div style="font-size:1.4rem;font-weight:800;color:var(--gold)">+${$$(daily)}</div>`;
+  }
+  if (gotOffline){
+    const lines = gains.map((g, i) => g > 0 ? `${WORLDS[i].emoji} ${$$(g)}` : null).filter(Boolean).join(' &nbsp;·&nbsp; ');
+    if (daily > 0) html += `<h3 style="margin-top:18px">While you were away…</h3>`;
+    else html += `<div style="font-size:2.4rem">🌙</div><h2>While you were away…</h2>`;
+    html += `<p class="dim">Your empire kept hustling for ${away >= 3600 ? Math.floor(away/3600)+'h '+Math.floor(away%3600/60)+'m' : Math.floor(away/60)+'m'} and earned</p>
+      <div style="font-size:1.3rem;font-weight:800;color:var(--good)">${lines}</div>`;
+  }
   const ov = document.createElement('div'); ov.className = 'overlay';
-  ov.innerHTML = `<div class="modal">
-    <div style="font-size:2.4rem">🌙</div>
-    <h2>While you were away…</h2>
-    <p class="dim">Your empire kept hustling for ${away >= 3600 ? Math.floor(away/3600)+'h '+Math.floor(away%3600/60)+'m' : Math.floor(away/60)+'m'} and earned</p>
-    <div style="font-size:1.3rem;font-weight:800;color:var(--good)">${lines}</div>
-    <button class="primary">Collect 💰</button>
-  </div>`;
-  ov.querySelector('button').addEventListener('click', () => { ov.remove(); });
+  ov.innerHTML = `<div class="modal">${html}<button class="primary">Collect 💰</button></div>`;
+  ov.querySelector('button').addEventListener('click', () => ov.remove());
   document.body.appendChild(ov);
+  save();
 }
 
 /* ============================ accounts =================================== */
@@ -845,6 +864,11 @@ function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 const SESS_KEY = 'hardwoodTycoonSessions';
 let onlineCreds = null;   // {name, pin} while playing a server account
 let lbOnline = null;      // cached global leaderboard rows
+function deviceId(){
+  let id = localStorage.getItem('hardwoodTycoonDevice');
+  if (!id){ id = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'd' + Date.now() + Math.random().toString(36).slice(2); localStorage.setItem('hardwoodTycoonDevice', id); }
+  return id;
+}
 function sessions(){ try { return JSON.parse(localStorage.getItem(SESS_KEY)) || {}; } catch { return {}; } }
 function saveSessions(m){ try { localStorage.setItem(SESS_KEY, JSON.stringify(m)); } catch {} }
 function rememberSession(name, pin){ const m = sessions(); m[name] = pin; saveSessions(m); }
@@ -1126,7 +1150,10 @@ function createAccount(name){
   name = (name || '').trim().slice(0, 20);
   if (!name) return null;
   const list = accounts();
-  if (!list.includes(name)){ list.push(name); saveAccounts(list); }
+  if (!list.includes(name)){
+    if (list.length >= 3){ alert('You can only have 3 accounts on this device.'); return null; }
+    list.push(name); saveAccounts(list);
+  }
   return name;
 }
 
@@ -1206,9 +1233,9 @@ function showStart(mode){
       if ((pin.value || '').length < 4) return err('PIN must be at least 4 characters.');
       const local = localStorage.getItem(acctKey(n)); // carry over this device's old save if one exists
       try {
-        const r = await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: n, pin: pin.value, save: local ? JSON.parse(local) : null }) });
+        const r = await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: n, pin: pin.value, device: deviceId(), save: local ? JSON.parse(local) : null }) });
         beginOnline(n, pin.value, r.save);
-      } catch (e) { err(e.status === 409 ? 'That name is taken — log in instead, or pick another.' : 'Could not reach the server.'); }
+      } catch (e) { err(e.status === 409 ? 'That name is taken — log in instead, or pick another.' : e.status === 403 ? 'This device already has 3 accounts — that\'s the max. Log in to one instead.' : 'Could not reach the server.'); }
     };
     modal.querySelector('#go').addEventListener('click', go);
     pin.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -1311,12 +1338,12 @@ el('acctsave').addEventListener('click', async () => {
     const pin = prompt('Choose a PIN (4+ characters) so you can log in on any device:') || '';
     if (pin.length < 4){ alert('PIN must be at least 4 characters.'); return; }
     try {
-      await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: raw, pin, save: S }) });
+      await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: raw, pin, device: deviceId(), save: S }) });
       rememberSession(raw, pin);
       onlineCreds = { name: raw, pin };
       player = raw;
       save(); updateAcctUI(); syncTick();
-    } catch (e) { alert(e.status === 409 ? 'That name is taken — pick another.' : 'Could not reach the server.'); }
+    } catch (e) { alert(e.status === 409 ? 'That name is taken — pick another.' : e.status === 403 ? 'This device already has 3 accounts — that\'s the max.' : 'Could not reach the server.'); }
     return;
   }
   if (accounts().includes(raw) && !confirm(`"${raw}" already exists — overwrite it with your current game?`)) return;
