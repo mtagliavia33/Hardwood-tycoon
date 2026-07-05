@@ -213,8 +213,8 @@ main{padding:14px 14px 30px}
         <h2>Win a Championship</h2>
         <p class="dim">Cash out your empire's run — <b>across every world</b> — for
         <b style="color:var(--gold)">championship rings</b>. Each ring permanently boosts
-        <b>all income everywhere by +5%</b>. Cash, businesses and upgrades reset in every world;
-        worlds you've unlocked stay unlocked.</p>
+        <b>all income everywhere by +5%</b>. Cash, businesses and upgrades reset in every world,
+        and worlds lock again — you start back in Streetball City and earn your way up.</p>
         <div class="statrow"><span>Rings owned</span><b id="p-owned">0</b></div>
         <div class="statrow"><span>Current income boost</span><b id="p-boost">+0%</b></div>
         <div class="statrow"><span>This-run earnings (all worlds)</span><b id="p-run">$0</b></div>
@@ -366,11 +366,11 @@ let player = null;  // account name; null = guest (or start screen)
 function freshWorld(i){
   return { cash: i === 0 ? 10 : 0, run:0, earned:0, counts:WORLDS[i].biz.map(()=>0), ups:[] };
 }
-function freshRunState(){ // what prestige resets (worlds stay unlocked)
-  return { worlds: WORLDS.map((_, i) => freshWorld(i)), cur:0 };
+function freshRunState(){ // what prestige resets — worlds lock again, back to world 1
+  return { worlds: WORLDS.map((_, i) => freshWorld(i)), cur:0, unlocked:WORLDS.map((_, i) => i === 0) };
 }
 function freshState(){
-  return { ...freshRunState(), unlocked:WORLDS.map((_, i) => i === 0),
+  return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
            playtime:0, peakRate:0 };
 }
@@ -539,7 +539,7 @@ function doPrestige(){
   if (!S) return;
   const gain = ringsFor(totalRun());
   if (gain < 1) return;
-  if (!confirm(`Win the championship?\n\nYou gain ${gain} ring${gain>1?'s':''} (+${gain*5}% income forever, in every world).\nCash, businesses and upgrades reset in ALL worlds. Unlocked worlds stay unlocked.`)) return;
+  if (!confirm(`Win the championship?\n\nYou gain ${gain} ring${gain>1?'s':''} (+${gain*5}% income forever, in every world).\nCash, businesses and upgrades reset in ALL worlds, and worlds lock again — you start back in Streetball City.`)) return;
   S.rings += gain;
   S.prestiges++;
   Object.assign(S, freshRunState());
