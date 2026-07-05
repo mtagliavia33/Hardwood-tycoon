@@ -1129,7 +1129,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     const rows = visible.map((n, i) => {
       const p = data.players[n], adm = (data.admins || []).includes(n);
       return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
-        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button></span></div>`;
+        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
     }).join('') + (names.length > visible.length
       ? `<button class="ghost" id="adm-showall" style="width:100%;margin-top:10px">Show all ${names.length} accounts</button>` : '')
       || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
@@ -1165,6 +1165,12 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
       const n = names[+b.dataset.r];
       if (!confirm(`Completely reset ${n} everywhere? Money, rings, prestiges and stats all go to zero and they lose every leaderboard spot. This cannot be undone.`)) return;
       try { await post(n, { reset: true }); await syncTick(); } catch { alert('Could not reach the server.'); }
+      refresh();
+    }));
+    modal.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.d];
+      if (!confirm(`Permanently DELETE the account "${n}"? It's removed from the game entirely — they can no longer log in, and the name frees up. This cannot be undone.`)) return;
+      try { await post(n, { delete: true }); } catch { alert('Could not reach the server.'); }
       refresh();
     }));
   }

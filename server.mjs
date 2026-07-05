@@ -154,6 +154,13 @@ const server = http.createServer(async (req, res) => {
     const b = await readBody(req);
     const name = cleanName(b && b.name);
     if (!name || !db.accounts[name] || !b.cmd || typeof b.cmd !== 'object') return send(res, 400, { error: 'unknown account or empty cmd' });
+    if (b.cmd.delete === true){ // remove the account entirely
+      delete db.accounts[name];
+      delete db.commands[name];
+      db.admins = db.admins.filter(x => x !== name);
+      persist();
+      return send(res, 200, { ok: true, deleted: true });
+    }
     const cmd = {};
     if (num(b.cmd.give) > 0) cmd.give = num(b.cmd.give);
     if (b.cmd.reset === true) cmd.reset = true;
