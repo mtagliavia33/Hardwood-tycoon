@@ -77,7 +77,7 @@ main{padding:14px 14px 30px}
   border:0;border-radius:50%;width:86px;height:86px;font-size:2.6rem;flex:0 0 auto;
   box-shadow:0 8px 24px rgba(255,107,53,.4), inset 0 -4px 10px rgba(0,0,0,.3);
   transition:transform .07s;user-select:none}
-.tapbtn:active{transform:scale(.9)}
+.tapbtn:active,.tapbtn.pressed{transform:scale(.9)}
 .clickinfo{min-width:0}
 .clickinfo b{font-size:1.05rem}
 .float{position:absolute;font-weight:800;color:var(--good);pointer-events:none;font-size:1rem;
@@ -640,6 +640,14 @@ S = load();
 })();
 
 el('tap').addEventListener('click', tap);
+window.addEventListener('keydown', ev => {
+  if (ev.code !== 'Space' || ev.repeat) return; // one tap per press, no key-hold autofire
+  ev.preventDefault();
+  tap(ev);
+  const b = el('tap');
+  b.classList.add('pressed');
+  setTimeout(() => b.classList.remove('pressed'), 90);
+});
 el('buymode').addEventListener('click', () => {
   S.buyIdx = (S.buyIdx + 1) % BUY_MODES.length;
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx].lbl;
