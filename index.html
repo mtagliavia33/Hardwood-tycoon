@@ -165,6 +165,7 @@ main{padding:14px 14px 30px}
       <div class="acctwrap">
         <button class="acctbtn" id="acctmenu">👤 <span id="acctlbl">…</span> ▾</button>
         <div class="acctdrop" id="acctdrop" style="display:none">
+          <button id="bonusbtn">💵 Bonus cash</button>
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
           <button id="renamebtn">Change account name</button>
@@ -911,16 +912,42 @@ function giveSelf(amt){
   W().cash += amt;
   paint(); save();
 }
+const GIVE_AMOUNTS = [[1e3,'+$1K'],[1e6,'+$1M'],[1e9,'+$1B'],[1e12,'+$1T'],[1e15,'+$1Qa']];
+function wireGiveButtons(root, after){
+  root.querySelectorAll('[data-amt]').forEach(b => b.addEventListener('click', () => { giveSelf(+b.dataset.amt); after && after(); }));
+  const c = root.querySelector('.give-custom');
+  if (c) c.addEventListener('click', () => {
+    const a = parseFloat(prompt('How much money do you want?') || '');
+    if (isFinite(a) && a > 0){ giveSelf(a); after && after(); }
+  });
+}
 function renderGiveRow(){
   const row = el('giverow'); if (!row) return;
-  const amts = [[1e3,'+$1K'],[1e6,'+$1M'],[1e9,'+$1B'],[1e12,'+$1T'],[1e15,'+$1Qa']];
-  row.innerHTML = amts.map(([v,l]) => `<button class="ghost sportbtn" data-amt="${v}">${l}</button>`).join('')
-    + `<button class="ghost sportbtn" id="give-custom">Custom…</button>`;
-  row.querySelectorAll('[data-amt]').forEach(b => b.addEventListener('click', () => giveSelf(+b.dataset.amt)));
-  el('give-custom').addEventListener('click', () => {
-    const a = parseFloat(prompt('How much money do you want?') || '');
-    if (isFinite(a) && a > 0) giveSelf(a);
-  });
+  row.innerHTML = GIVE_AMOUNTS.map(([v,l]) => `<button class="ghost sportbtn" data-amt="${v}">${l}</button>`).join('')
+    + `<button class="ghost sportbtn give-custom">Custom…</button>`;
+  wireGiveButtons(row);
+}
+function bonusCashModal(){
+  el('acctdrop').style.display = 'none';
+  if (!S) return;
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal';
+  ov.appendChild(modal);
+  const draw = () => {
+    modal.innerHTML = `
+      <div style="font-size:2.4rem">💵</div>
+      <h2>Bonus cash</h2>
+      <p class="dim">Give yourself a boost — added to the world you're in. You have <b style="color:var(--good)">${$$(totalCash())}</b>.</p>
+      <div id="giverow2" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:6px">
+        ${GIVE_AMOUNTS.map(([v,l]) => `<button class="ghost sportbtn" data-amt="${v}">${l}</button>`).join('')}
+        <button class="ghost sportbtn give-custom">Custom…</button>
+      </div>
+      <div class="btncol"><button class="ghost" id="bonus-close">Done</button></div>`;
+    wireGiveButtons(modal, draw); // redraw to show updated balance
+    modal.querySelector('#bonus-close').addEventListener('click', () => ov.remove());
+  };
+  draw();
+  document.body.appendChild(ov);
 }
 
 function admGiveMoney(){
@@ -1369,6 +1396,7 @@ el('acctmenu').addEventListener('click', () => {
 document.addEventListener('click', e => {
   if (!e.target.closest('.acctwrap')) el('acctdrop').style.display = 'none';
 });
+el('bonusbtn').addEventListener('click', bonusCashModal);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
