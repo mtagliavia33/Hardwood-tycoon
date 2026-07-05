@@ -12,7 +12,7 @@ const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [] };
+let db = { accounts: {}, commands: {}, admins: [], messages: [] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch {}
 
 let saveTimer = null;
@@ -122,6 +122,35 @@ const server = http.createServer(async (req, res) => {
     delete db.accounts[got.name];
     if (db.commands[got.name]){ db.commands[to] = db.commands[got.name]; delete db.commands[got.name]; }
     db.admins = db.admins.map(x => x === got.name ? to : x);
+    persist();
+    return send(res, 200, { ok: true });
+  }
+
+  // anyone can message the owner
+  if (url.pathname === '/api/message' && req.method === 'POST'){
+    const b = await readBody(req);
+    const text = (typeof (b && b.text) === 'string' ? b.text : '').trim().slice(0, 500);
+    if (!text) return send(res, 400, { error: 'Type a message first.' });
+    db.messages.push({ from: cleanName(b && b.from) || 'Guest', text, at: Date.now(), read: false });
+    if (db.messages.length > 300) db.messages = db.messages.slice(-300);
+    persist();
+    return send(res, 200, { ok: true });
+  }
+
+  // owner: read the inbox
+  if (url.pathname === '/api/inbox' && req.method === 'GET'){
+    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    return send(res, 200, { messages: db.messages.slice().reverse() }); // newest first
+  }
+
+  // owner: mark all read, or clear the inbox
+  if (url.pathname === '/api/inbox' && req.method === 'POST'){
+    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    const b = await readBody(req);
+    if (b && b.action === 'clear') db.messages = [];
+    else db.messages.forEach(m => { m.read = true; });
     persist();
     return send(res, 200, { ok: true });
   }

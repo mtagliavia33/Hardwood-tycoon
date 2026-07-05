@@ -155,6 +155,12 @@ main{padding:14px 14px 30px}
 .fineprint{color:var(--dim);font-size:.72rem;margin:4px 0 0}
 .modal input{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
   padding:11px 12px;color:inherit;font-family:inherit;font-size:1rem;margin-top:14px;text-align:center}
+.modal textarea{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;color:inherit;font-family:inherit;font-size:.95rem;margin-top:14px;resize:vertical}
+.msg{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;text-align:left}
+.msg.unread{border-color:var(--gold)}
+.msg .who{font-weight:700;font-size:.85rem}
+.msg .body{font-size:.9rem;white-space:pre-wrap;word-break:break-word;margin-top:2px}
 @media(max-width:520px){ .tapbtn{width:72px;height:72px;font-size:2.1rem} .cash{font-size:1.55rem} }
 </style>
 </head>
@@ -167,6 +173,7 @@ main{padding:14px 14px 30px}
         <div class="acctdrop" id="acctdrop" style="display:none">
           <button id="bonusbtn">💵 Bonus cash</button>
           <button id="exchangebtn">💱 Exchange currency</button>
+          <button id="messagebtn">✉️ Message the owner</button>
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
           <button id="renamebtn">Change account name</button>
@@ -942,6 +949,37 @@ function convertAll(from){
   S.worlds[to].cash += have / EX_RATE;   // transfer, not minted — all-time earnings unchanged
   paint(); save();
 }
+function messageOwnerModal(){
+  el('acctdrop').style.display = 'none';
+  if (!S) return;
+  if (!serverOn){ alert('Messaging needs an internet connection.'); return; }
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal';
+  modal.innerHTML = `
+    <div style="font-size:2.4rem">✉️</div>
+    <h2>Message the owner</h2>
+    <p class="dim">Send a note to the game's owner — they'll see it in their inbox.</p>
+    <textarea id="msgtext" maxlength="500" rows="4" placeholder="Type your message…"></textarea>
+    <p class="fineprint" id="msgerr" style="color:var(--bad)"></p>
+    <div class="btncol"><button class="primary" id="msgsend">Send</button><button class="ghost" id="msgcancel">Cancel</button></div>`;
+  ov.appendChild(modal);
+  const ta = modal.querySelector('#msgtext');
+  modal.querySelector('#msgcancel').addEventListener('click', () => ov.remove());
+  modal.querySelector('#msgsend').addEventListener('click', async () => {
+    const text = ta.value.trim();
+    if (!text){ modal.querySelector('#msgerr').textContent = 'Type a message first.'; return; }
+    try {
+      await api('/api/message', { method: 'POST', body: JSON.stringify({ from: player || 'Guest', text }) });
+      modal.innerHTML = `<div style="font-size:2.4rem">✅</div><h2>Sent!</h2>
+        <p class="dim">Your message is in the owner's inbox.</p>
+        <div class="btncol"><button class="primary" id="msgdone">Done</button></div>`;
+      modal.querySelector('#msgdone').addEventListener('click', () => ov.remove());
+    } catch { modal.querySelector('#msgerr').textContent = 'Could not reach the server — try again.'; }
+  });
+  document.body.appendChild(ov);
+  ta.focus();
+}
+
 function exchangeModal(){
   el('acctdrop').style.display = 'none';
   if (!S) return;
@@ -1118,11 +1156,23 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
   modal.style.maxWidth = '520px'; modal.style.textAlign = 'left';
   ov.appendChild(modal);
   const post = (name, cmd) => api('/api/command', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ name, cmd }) });
+  let inbox = [];
   const refresh = async () => {
     try { data = await api('/api/players', { headers: { 'x-admin-key': key } }); } catch {}
+    try { inbox = (await api('/api/inbox', { headers: { 'x-admin-key': key } })).messages || []; } catch {}
     render();
   };
-  let showAll = false;
+  let showAll = false, showInbox = false;
+  function inboxHtml(){
+    const unread = inbox.filter(m => !m.read).length;
+    let body = `<h3 style="margin-top:18px">📨 Inbox${unread ? ` <span style="color:var(--gold)">(${unread} new)</span>` : ''}</h3>`;
+    if (!inbox.length) return body + '<p class="dim">No messages yet.</p>';
+    const shown = showInbox ? inbox : inbox.slice(0, 3);
+    body += shown.map(m => `<div class="msg${m.read ? '' : ' unread'}"><div class="who">${esc(m.from)} <span class="dim">· ${timeAgo(m.at)}</span></div><div class="body">${esc(m.text)}</div></div>`).join('');
+    if (inbox.length > shown.length) body += `<button class="ghost" id="inbox-all" style="width:100%;margin-top:8px">Show all ${inbox.length} messages</button>`;
+    body += `<div class="btncol"><button class="ghost" id="inbox-read">Mark all read</button><button class="ghost" id="inbox-clear" style="border-color:var(--bad);color:var(--bad)">Clear inbox</button></div>`;
+    return body;
+  }
   function render(){
     const names = Object.keys(data.players || {}).sort((a, b) => (data.players[b].lastSeen || 0) - (data.players[a].lastSeen || 0));
     const visible = showAll ? names : names.slice(0, 5);
@@ -1140,11 +1190,22 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
         <button class="primary" id="adm-give">💵 Give myself money…</button>
         <button class="danger" id="adm-zero" style="width:100%">Reset my money to $0</button>
       </div>
+      ${inboxHtml()}
       <h3 style="margin-top:18px">All accounts (${names.length})</h3>${rows}
       <p class="dim">Changes reach other devices within ~30 seconds while their game is open.</p>
       <div class="btncol"><button class="ghost" id="adm-refresh">Refresh list</button><button class="ghost" id="adm-close">Close</button></div>`;
     const sa = modal.querySelector('#adm-showall');
     if (sa) sa.addEventListener('click', () => { showAll = true; render(); });
+    const ia = modal.querySelector('#inbox-all');
+    if (ia) ia.addEventListener('click', () => { showInbox = true; render(); });
+    const ir = modal.querySelector('#inbox-read');
+    if (ir) ir.addEventListener('click', async () => { try { await api('/api/inbox', { method: 'POST', headers: { 'x-admin-key': key }, body: '{}' }); } catch {} refresh(); });
+    const ic = modal.querySelector('#inbox-clear');
+    if (ic) ic.addEventListener('click', async () => {
+      if (!confirm('Clear all messages from the inbox? This cannot be undone.')) return;
+      try { await api('/api/inbox', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ action: 'clear' }) }); } catch {}
+      refresh();
+    });
     modal.querySelector('#adm-give').addEventListener('click', () => { admGiveMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-refresh').addEventListener('click', refresh);
@@ -1176,6 +1237,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
   }
   render();
   document.body.appendChild(ov);
+  refresh(); // load the inbox (and freshen players) now that the panel is open
 }
 
 /* ========================== leaderboards ================================= */
@@ -1446,6 +1508,7 @@ document.addEventListener('click', e => {
 });
 el('bonusbtn').addEventListener('click', bonusCashModal);
 el('exchangebtn').addEventListener('click', exchangeModal);
+el('messagebtn').addEventListener('click', messageOwnerModal);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
