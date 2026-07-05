@@ -176,6 +176,7 @@ main{padding:14px 14px 30px}
 .pet .pmult{font-size:.64rem;color:var(--dim);margin-top:3px}
 .pet .pcount{position:absolute;top:4px;right:6px;font-size:.6rem;color:var(--dim)}
 .pet.active{box-shadow:0 0 0 2px var(--gold) inset}
+.pet .psell{width:100%;margin-top:6px;padding:3px 4px;font-size:.6rem}
 .msg-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .msg .who{font-weight:700;font-size:.85rem}
 .msg .body{font-size:.9rem;white-space:pre-wrap;word-break:break-word;margin-top:2px}
@@ -276,6 +277,7 @@ main{padding:14px 14px 30px}
       <div class="panel">
         <h3>Your pets</h3>
         <div id="petgrid"></div>
+        <div class="btncol"><button class="ghost" id="selldupes">💰 Sell all duplicates</button></div>
       </div>
     </section>
 
@@ -579,12 +581,12 @@ function allMult(wi = S.cur){
 // pet boosts either cash income or ring gain; the best owned pet of each
 // kind is active. Pets are stored by rarity+kind and re-themed to the sport.
 const RARITIES = [
-  { key:'common',         label:'Common',          color:'#9fb0c9', rate:0.60,  cash:1.10, ring:1.02 },
-  { key:'superrare',      label:'Super Rare',      color:'#4d9bff', rate:0.25,  cash:1.25, ring:1.05 },
-  { key:'epic',           label:'Epic',            color:'#b96bff', rate:0.10,  cash:1.50, ring:1.10 },
-  { key:'mythic',         label:'Mythic',          color:'#ff5d7a', rate:0.035, cash:2.00, ring:1.25 },
-  { key:'legendary',      label:'Legendary',       color:'#ffd166', rate:0.01,  cash:3.00, ring:1.50 },
-  { key:'ultralegendary', label:'Ultra Legendary', color:'#35e6ff', rate:0.005, cash:5.00, ring:2.00 },
+  { key:'common',         label:'Common',          color:'#9fb0c9', rate:0.60,  cash:1.10, ring:1.02, sell:0.15 },
+  { key:'superrare',      label:'Super Rare',      color:'#4d9bff', rate:0.25,  cash:1.25, ring:1.05, sell:0.40 },
+  { key:'epic',           label:'Epic',            color:'#b96bff', rate:0.10,  cash:1.50, ring:1.10, sell:1.00 },
+  { key:'mythic',         label:'Mythic',          color:'#ff5d7a', rate:0.035, cash:2.00, ring:1.25, sell:3.00 },
+  { key:'legendary',      label:'Legendary',       color:'#ffd166', rate:0.01,  cash:3.00, ring:1.50, sell:8.00 },
+  { key:'ultralegendary', label:'Ultra Legendary', color:'#35e6ff', rate:0.005, cash:5.00, ring:2.00, sell:20.0 },
 ];
 const rarityIdx = key => RARITIES.findIndex(r => r.key === key);
 function petTheme(ri){ const p = (SPORTS[sport] && SPORTS[sport].pets) || SPORTS.basketball.pets; return p[ri] || ['🐾','Pet']; }
@@ -607,7 +609,26 @@ function openPack(){
   S.pets = S.pets || {};
   S.pets[key] = (S.pets[key] || 0) + 1;
   paint(); save();
-  return { rk, kind };
+  return { rk, kind, key };
+}
+function sellValue(ri){ return Math.ceil(petCost() * RARITIES[ri].sell); } // scales with your economy
+function petSell(key, count){
+  if (!S || !S.pets || !S.pets[key]) return 0;
+  count = Math.min(count, S.pets[key]);
+  const total = sellValue(rarityIdx(key.split(':')[0])) * count;
+  S.pets[key] -= count;
+  if (S.pets[key] <= 0) delete S.pets[key];
+  W().cash += total; paint(); save();
+  return total;
+}
+function sellAllDupes(){
+  let total = 0, sold = 0;
+  for (const key in (S.pets || {})){
+    const extra = S.pets[key] - 1;
+    if (extra > 0){ total += sellValue(rarityIdx(key.split(':')[0])) * extra; sold += extra; S.pets[key] = 1; }
+  }
+  if (total > 0){ W().cash += total; paint(); save(); }
+  return { total, sold };
 }
 
 function bizMult(i, wi = S.cur){
@@ -839,7 +860,7 @@ function paint(){
   el('s-prest').textContent = S.prestiges;
   el('s-rings').textContent = S.rings;
   if (el('tab-leaders').style.display !== 'none') renderLeaders();
-  if (el('tab-pets').style.display !== 'none') renderPets();
+  if (el('tab-pets').style.display !== 'none') renderPetsButton();
 }
 
 /* =============================== tabs ==================================== */
@@ -1498,23 +1519,29 @@ function renderBoard(id, rows, val){
     `<div class="statrow"><span>${medals[i] || (i + 1) + '.'} ${esc(r.name)}${r.you ? ' <span class="dim">(you)</span>' : ''}</span><b>${val(r)}</b></div>`
   ).join('') || '<p class="dim">No players yet — create an account and start earning.</p>';
 }
-function renderPets(){
+function renderPetsButton(){
   if (!S) return;
   const cost = petCost();
   el('packbtn').textContent = 'Open pack — ' + $$(cost);
   el('packbtn').disabled = W().cash < cost;
   const cashI = ownedBest('cash'), ringI = ownedBest('rings');
   el('petactive').innerHTML = `Active bonuses: 💰 cash ×${cashI < 0 ? 1 : RARITIES[cashI].cash} &nbsp;·&nbsp; 💍 rings ×${ringI < 0 ? 1 : RARITIES[ringI].ring}`;
+}
+function renderPets(){
+  if (!S) return;
+  renderPetsButton();
+  const cashI = ownedBest('cash'), ringI = ownedBest('rings');
   const cells = [];
   for (let ri = RARITIES.length - 1; ri >= 0; ri--){
     for (const kind of ['cash', 'rings']){
-      const count = (S.pets || {})[RARITIES[ri].key + ':' + kind] || 0;
+      const key = RARITIES[ri].key + ':' + kind, count = (S.pets || {})[key] || 0;
       if (!count) continue;
       const [emoji, name] = petTheme(ri), R = RARITIES[ri];
       const active = (kind === 'cash' && ri === cashI) || (kind === 'rings' && ri === ringI);
       cells.push(`<div class="pet${active ? ' active' : ''}"><span class="pcount">×${count}</span>
         <div class="pemoji">${emoji}</div><div class="prar" style="color:${R.color}">${R.label}</div>
-        <div class="pname">${esc(name)}</div><div class="pmult">${kind === 'cash' ? '💰' : '💍'} ×${kind === 'cash' ? R.cash : R.ring}</div></div>`);
+        <div class="pname">${esc(name)}</div><div class="pmult">${kind === 'cash' ? '💰' : '💍'} ×${kind === 'cash' ? R.cash : R.ring}</div>
+        <button class="ghost mini psell" data-sell="${key}">Sell ${$$(sellValue(ri))}</button></div>`);
     }
   }
   el('petgrid').innerHTML = cells.length ? cells.join('') : '<p class="dim">No pets yet — open a pack!</p>';
@@ -1529,8 +1556,9 @@ function revealPet(res){
     <div style="font-size:3.6rem;margin:6px">${emoji}</div>
     <h2>${esc(name)}</h2>
     <p class="dim">${res.kind === 'cash' ? 'Cash income' : 'Ring gain'} ×${mult}${active ? ' — now active! ✨' : ''}</p>
-    <div class="btncol"><button class="primary">Nice!</button></div></div>`;
-  ov.querySelector('button').addEventListener('click', () => ov.remove());
+    <div class="btncol"><button class="primary" id="pkeep">Keep</button><button class="ghost" id="psellone">Sell for ${$$(sellValue(ri))}</button></div></div>`;
+  ov.querySelector('#pkeep').addEventListener('click', () => { ov.remove(); renderPets(); });
+  ov.querySelector('#psellone').addEventListener('click', () => { petSell(res.key, 1); ov.remove(); renderPets(); });
   document.body.appendChild(ov);
 }
 function renderLeaders(){
@@ -1726,6 +1754,16 @@ el('buymode').addEventListener('click', () => {
 });
 el('prestige').addEventListener('click', doPrestige);
 el('packbtn').addEventListener('click', () => { const res = openPack(); if (res){ revealPet(res); renderPets(); } });
+el('petgrid').addEventListener('click', e => { const b = e.target.closest('[data-sell]'); if (!b) return; petSell(b.dataset.sell, 1); renderPets(); });
+el('selldupes').addEventListener('click', () => {
+  if (!S) return;
+  const dupes = Object.values(S.pets || {}).reduce((a, c) => a + Math.max(0, c - 1), 0);
+  if (!dupes){ alert('No duplicate pets to sell.'); return; }
+  if (!confirm(`Sell ${dupes} duplicate pet${dupes > 1 ? 's' : ''}? You'll keep one of each.`)) return;
+  const r = sellAllDupes();
+  alert(`Sold ${r.sold} duplicate${r.sold > 1 ? 's' : ''} for ${$$(r.total)}.`);
+  renderPets();
+});
 el('hardreset').addEventListener('click', () => {
   if (!S) return;
   if (!confirm('Wipe EVERYTHING — every world, cash, businesses, upgrades AND rings? (Your pets are kept.)')) return;
