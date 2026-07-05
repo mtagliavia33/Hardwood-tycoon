@@ -33,6 +33,14 @@ button{font-family:inherit;cursor:pointer}
 h1,h2,h3{margin:0 0 .5rem}
 .dim{color:var(--dim);font-size:.85rem}
 
+/* ---------- announcement ticker ---------- */
+.ticker{overflow:hidden;white-space:nowrap;background:linear-gradient(90deg,var(--accent),var(--gold));
+  color:#231400;font-weight:800;font-size:.9rem;padding:7px 0;cursor:pointer;position:sticky;top:0;z-index:20}
+.ticker-inner{display:inline-block;padding-left:100%;animation:tickerscroll linear infinite;will-change:transform}
+.ticker-inner::before{content:"📣 "}
+@keyframes tickerscroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+@media(prefers-reduced-motion:reduce){.ticker-inner{animation-duration:0s !important;padding-left:0;text-align:center;display:block}}
+
 /* ---------- header ---------- */
 .top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg2) 92%,transparent);
   backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px 16px}
@@ -166,6 +174,7 @@ main{padding:14px 14px 30px}
 </head>
 <body>
 <div id="app">
+  <div id="ticker" class="ticker" style="display:none" title="Tap to dismiss"><div class="ticker-inner"><span id="ticker-text"></span></div></div>
   <div class="top">
     <div class="brand"><span id="brandtxt">🏀 Hardwood <b>Tycoon</b></span>
       <div class="acctwrap">
@@ -869,6 +878,20 @@ async function checkServer(){
 }
 function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 
+// scrolling announcement ticker — stays visible for a set time, then hides
+const ANNOUNCE_SECONDS = 30;     // how long the banner stays up each time
+let announceShownId = 0, tickerTimer = null;
+function showTicker(text){
+  const bar = el('ticker'), inner = bar.querySelector('.ticker-inner');
+  el('ticker-text').textContent = text;
+  inner.style.animationDuration = Math.max(12, Math.min(45, text.length * 0.4)) + 's'; // longer text scrolls slower
+  bar.style.display = '';
+  void inner.offsetWidth;          // restart the scroll animation
+  clearTimeout(tickerTimer);
+  tickerTimer = setTimeout(hideTicker, ANNOUNCE_SECONDS * 1000);
+}
+function hideTicker(){ clearTimeout(tickerTimer); el('ticker').style.display = 'none'; }
+
 // online accounts: remembered {name: pin} sessions on this device
 const SESS_KEY = 'hardwoodTycoonSessions';
 let onlineCreds = null;   // {name, pin} while playing a server account
@@ -912,10 +935,11 @@ async function syncTick(){ // push my save to the server, pick up commands
       const lb = await api('/api/leaderboard');
       lbOnline = lb.rows;
       const a = lb.announcement;
-      if (S && a && a.id && a.text && a.id !== S.lastAnnounce){
-        S.lastAnnounce = a.id;
-        showNotice('📣', 'Announcement', esc(a.text));
-        save();
+      if (a && a.id && a.text && a.id !== announceShownId){
+        announceShownId = a.id;        // in-memory: re-shows each session / when it changes, not once ever
+        showTicker(a.text);
+      } else if (a && (!a.id || !a.text)){
+        hideTicker();                  // announcement cleared
       }
     } catch {}
   }
@@ -1556,6 +1580,7 @@ document.addEventListener('click', e => {
 el('bonusbtn').addEventListener('click', bonusCashModal);
 el('exchangebtn').addEventListener('click', exchangeModal);
 el('messagebtn').addEventListener('click', messageOwnerModal);
+el('ticker').addEventListener('click', hideTicker);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
