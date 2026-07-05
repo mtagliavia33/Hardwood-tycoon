@@ -62,6 +62,8 @@ h1,h2,h3{margin:0 0 .5rem}
 .sportbtn.on{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .money{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:4px}
 .cash{font-size:1.9rem;font-weight:800;color:var(--good);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.cash.boosting{animation:cashpulse 1.6s ease-in-out infinite}
+@keyframes cashpulse{0%,100%{color:var(--good);text-shadow:none}50%{color:var(--gold);text-shadow:0 0 14px rgba(255,209,102,.75)}}
 .persec{color:var(--dim);font-size:.95rem;font-variant-numeric:tabular-nums}
 .persec b{color:var(--text)}
 .rings{margin-left:auto;color:var(--gold);font-weight:700;font-size:.95rem}
@@ -935,6 +937,7 @@ function updateTicker(){
   const sched = scheduleTickerText();
   const manual = (manualAnnounce && manualAnnounce.text) ? manualAnnounce.text : '';
   showTicker(manual ? manual + ' • ' + sched : sched);
+  const cash = el('cash'); if (cash) cash.classList.toggle('boosting', boostActive()); // gold pulse on boost days
 }
 
 // online accounts: remembered {name: pin} sessions on this device
