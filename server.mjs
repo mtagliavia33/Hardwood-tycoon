@@ -12,7 +12,7 @@ const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [], messages: [] };
+let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0 } };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch {}
 
 let saveTimer = null;
@@ -161,7 +161,7 @@ const server = http.createServer(async (req, res) => {
       const s = statsOf(a.save);
       return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, lastSeen: a.lastSeen };
     });
-    return send(res, 200, { rows });
+    return send(res, 200, { rows, announcement: db.announcement });
   }
 
   // owner: every account in the game
@@ -173,7 +173,18 @@ const server = http.createServer(async (req, res) => {
       ...statsOf(a.save), lastSeen: a.lastSeen,
       pending: (db.commands[name] || []).reduce((t, c) => t + num(c.give), 0), // queued gives not yet collected
     };
-    return send(res, 200, { players, admins: db.admins });
+    return send(res, 200, { players, admins: db.admins, announcement: db.announcement });
+  }
+
+  // owner: set or clear the global announcement everyone sees on login
+  if (url.pathname === '/api/announce' && req.method === 'POST'){
+    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    const b = await readBody(req);
+    const text = (typeof (b && b.text) === 'string' ? b.text : '').trim().slice(0, 300);
+    db.announcement = { text, id: (db.announcement.id || 0) + 1, at: Date.now() };
+    persist();
+    return send(res, 200, { ok: true, announcement: db.announcement });
   }
 
   // owner: give money / reset / grant admin
@@ -193,6 +204,7 @@ const server = http.createServer(async (req, res) => {
     const cmd = {};
     if (num(b.cmd.give) > 0) cmd.give = num(b.cmd.give);
     if (b.cmd.reset === true) cmd.reset = true;
+    if (typeof b.cmd.message === 'string' && b.cmd.message.trim()) cmd.message = b.cmd.message.trim().slice(0, 500);
     if (typeof b.cmd.admin === 'boolean') db.admins = b.cmd.admin
       ? [...new Set([...db.admins, name])] : db.admins.filter(x => x !== name);
     // reset is idempotent: wipe the stored save now AND queue it for a live session

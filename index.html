@@ -463,14 +463,14 @@ function freshRunState(){ // what prestige resets — worlds lock again, back to
 function freshState(){
   return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
-           playtime:0, peakRate:0, lastDaily:0 };
+           playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0 };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -889,15 +889,36 @@ function applyServerFlags(r){ // admin flag + queued commands from any /api resp
     d.admins = r.admin ? (d.admins || []).concat(player) : (d.admins || []).filter(x => x !== player);
     saveAdmin(d);
   }
-  let touched = false;
+  let touched = false; const msgs = [];
   for (const c of r.commands || []){
     if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
     if (c.reset === true){ S = freshState(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
+    if (typeof c.message === 'string' && c.message) msgs.push(c.message);
   }
   if (touched){ paint(); save(); }
+  if (msgs.length) showNotice('💬', 'Message from the owner', msgs.map(esc).join('<hr style="border:none;border-top:1px solid var(--line);margin:10px 0">'));
+}
+function showNotice(icon, title, bodyHtml){
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  ov.innerHTML = `<div class="modal"><div style="font-size:2.4rem">${icon}</div><h2>${title}</h2>
+    <div style="text-align:left;white-space:pre-wrap;word-break:break-word;margin-top:6px">${bodyHtml}</div>
+    <div class="btncol"><button class="primary">OK</button></div></div>`;
+  ov.querySelector('button').addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
 }
 async function syncTick(){ // push my save to the server, pick up commands
-  if (serverOn){ try { lbOnline = (await api('/api/leaderboard')).rows; } catch {} }
+  if (serverOn){
+    try {
+      const lb = await api('/api/leaderboard');
+      lbOnline = lb.rows;
+      const a = lb.announcement;
+      if (S && a && a.id && a.text && a.id !== S.lastAnnounce){
+        S.lastAnnounce = a.id;
+        showNotice('📣', 'Announcement', esc(a.text));
+        save();
+      }
+    } catch {}
+  }
   if (!S || !onlineCreds || !serverOn) return;
   try {
     const r = await api('/api/save', { method: 'POST', body: JSON.stringify({ ...onlineCreds, save: S }) });
@@ -1163,6 +1184,13 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     render();
   };
   let showAll = false, showInbox = false;
+  function announceHtml(){
+    const cur = (data.announcement && data.announcement.text) || '';
+    return `<h3 style="margin-top:18px">📣 Announcement</h3>
+      <p class="dim">${cur ? 'Everyone sees this once when they log in:' : 'No announcement set.'}</p>
+      ${cur ? `<div class="msg">${esc(cur)}</div>` : ''}
+      <div class="btncol"><button class="ghost" id="ann-set">${cur ? 'Change announcement' : 'Set announcement'}</button>${cur ? '<button class="ghost" id="ann-clear" style="border-color:var(--bad);color:var(--bad)">Clear</button>' : ''}</div>`;
+  }
   function inboxHtml(){
     const unread = inbox.filter(m => !m.read).length;
     let body = `<h3 style="margin-top:18px">📨 Inbox${unread ? ` <span style="color:var(--gold)">(${unread} new)</span>` : ''}</h3>`;
@@ -1179,7 +1207,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     const rows = visible.map((n, i) => {
       const p = data.players[n], adm = (data.admins || []).includes(n);
       return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
-        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
+        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-reply="${i}">💬 Reply</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
     }).join('') + (names.length > visible.length
       ? `<button class="ghost" id="adm-showall" style="width:100%;margin-top:10px">Show all ${names.length} accounts</button>` : '')
       || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
@@ -1190,6 +1218,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
         <button class="primary" id="adm-give">💵 Give myself money…</button>
         <button class="danger" id="adm-zero" style="width:100%">Reset my money to $0</button>
       </div>
+      ${announceHtml()}
       ${inboxHtml()}
       <h3 style="margin-top:18px">All accounts (${names.length})</h3>${rows}
       <p class="dim">Changes reach other devices within ~30 seconds while their game is open.</p>
@@ -1206,6 +1235,24 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
       try { await api('/api/inbox', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ action: 'clear' }) }); } catch {}
       refresh();
     });
+    const as = modal.querySelector('#ann-set');
+    if (as) as.addEventListener('click', async () => {
+      const text = (prompt('Announcement text — everyone sees this on login:', (data.announcement && data.announcement.text) || '') || '').trim();
+      if (!text) return;
+      try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text }) }); } catch { alert('Could not reach the server.'); }
+      refresh();
+    });
+    const ac = modal.querySelector('#ann-clear');
+    if (ac) ac.addEventListener('click', async () => {
+      try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text: '' }) }); } catch {}
+      refresh();
+    });
+    modal.querySelectorAll('[data-reply]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.reply];
+      const text = (prompt(`Reply to ${n} (they'll see it next time they play):`) || '').trim();
+      if (!text) return;
+      try { await post(n, { message: text }); alert('Sent to ' + n + '.'); } catch { alert('Could not reach the server.'); }
+    }));
     modal.querySelector('#adm-give').addEventListener('click', () => { admGiveMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-refresh').addEventListener('click', refresh);
