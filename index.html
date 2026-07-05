@@ -41,6 +41,15 @@ h1,h2,h3{margin:0 0 .5rem}
 .brand a{color:var(--dim);font-size:.75rem;font-weight:600;text-decoration:none;border:1px solid var(--line);
   padding:4px 10px;border-radius:8px;transition:.13s}
 .brand a:hover{color:var(--text);border-color:var(--accent)}
+.acctwrap{position:relative}
+.acctbtn{background:var(--panel2);border:1px solid var(--line);color:var(--text);font-weight:600;font-size:.75rem;
+  padding:5px 10px;border-radius:8px;transition:.13s;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acctbtn:hover{border-color:var(--accent)}
+.acctdrop{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.45);min-width:190px;z-index:60;overflow:hidden}
+.acctdrop button{display:block;width:100%;background:transparent;border:0;color:var(--text);text-align:left;
+  padding:11px 14px;font-size:.85rem;font-weight:600}
+.acctdrop button:hover{background:var(--panel2)}
 .money{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:4px}
 .cash{font-size:1.9rem;font-weight:800;color:var(--good);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
 .persec{color:var(--dim);font-size:.95rem;font-variant-numeric:tabular-nums}
@@ -148,7 +157,15 @@ main{padding:14px 14px 30px}
 <body>
 <div id="app">
   <div class="top">
-    <div class="brand"><span>🏀 Hardwood <b>Tycoon</b></span></div>
+    <div class="brand"><span>🏀 Hardwood <b>Tycoon</b></span>
+      <div class="acctwrap">
+        <button class="acctbtn" id="acctmenu">👤 <span id="acctlbl">…</span> ▾</button>
+        <div class="acctdrop" id="acctdrop" style="display:none">
+          <button id="logoutbtn">Log out and save</button>
+          <button id="newacctbtn">Make a new account</button>
+        </div>
+      </div>
+    </div>
     <div class="money">
       <span class="cash" id="cash">$0</span>
       <span class="persec"><b id="persec">$0</b>/sec</span>
@@ -205,7 +222,7 @@ main{padding:14px 14px 30px}
     </section>
 
     <section id="tab-leaders" style="display:none">
-      <p class="dim">Rankings for every player saved in this browser. Guest runs count while the tab is open.</p>
+      <p class="dim">Top 5 players saved in this browser. Guest runs count while the tab is open.</p>
       <div class="panel"><h3>⏱️ Most time played</h3><div id="lb-time"></div></div>
       <div class="panel"><h3>💰 Most money earned</h3><div id="lb-money"></div></div>
       <div class="panel"><h3>⚡ Most money made in a second</h3><div id="lb-rate"></div></div>
@@ -688,6 +705,7 @@ function collectOffline(){
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function updateAcctUI(){
+  el('acctlbl').textContent = player || 'Guest';
   el('acctinfo').textContent = player
     ? `Playing as ${player}. Your empire auto-saves to this browser.`
     : 'Playing as guest — progress is lost when you close the tab.';
@@ -722,10 +740,10 @@ function renderBoard(id, rows, val){
   ).join('') || '<p class="dim">No players yet — create an account and start earning.</p>';
 }
 function renderLeaders(){
-  const rows = leaderRows();
-  renderBoard('lb-time',  rows.slice().sort((a, b) => b.time  - a.time),  r => fmtTime(r.time));
-  renderBoard('lb-money', rows.slice().sort((a, b) => b.money - a.money), r => $$(r.money));
-  renderBoard('lb-rate',  rows.slice().sort((a, b) => b.rate  - a.rate),  r => $$(r.rate) + '/sec');
+  const rows = leaderRows(), TOP = 5;
+  renderBoard('lb-time',  rows.slice().sort((a, b) => b.time  - a.time).slice(0, TOP),  r => fmtTime(r.time));
+  renderBoard('lb-money', rows.slice().sort((a, b) => b.money - a.money).slice(0, TOP), r => $$(r.money));
+  renderBoard('lb-rate',  rows.slice().sort((a, b) => b.rate  - a.rate).slice(0, TOP),  r => $$(r.rate) + '/sec');
 }
 
 function createAccount(name){
@@ -746,7 +764,7 @@ function startGame(name){
   save();
 }
 
-function showStart(){
+function showStart(mode){
   const ov = document.createElement('div'); ov.className = 'overlay';
   const modal = document.createElement('div'); modal.className = 'modal';
   ov.appendChild(modal);
@@ -786,7 +804,7 @@ function showStart(){
     modal.querySelector('#back').addEventListener('click', menu);
     inp.focus();
   }
-  menu();
+  if (mode === 'create') form(); else menu();
   document.body.appendChild(ov);
 }
 
@@ -821,13 +839,23 @@ el('acctsave').addEventListener('click', () => {
   player = createAccount(raw);
   save(); updateAcctUI();
 });
-el('switchbtn').addEventListener('click', () => {
+function leaveGame(mode){ // save (accounts only) and return to the start screen
   if (!S) return;
-  if (!player && S.all > 0 && !confirm('Leave your guest game? Its progress will be lost.')) return;
+  if (!player && S.all > 0 && !confirm('Leave your guest game? Guest progress is not saved.')) return;
   save();
   S = null; player = null;
-  showStart();
+  showStart(mode);
+}
+el('switchbtn').addEventListener('click', () => leaveGame());
+el('acctmenu').addEventListener('click', () => {
+  const d = el('acctdrop');
+  d.style.display = d.style.display === 'none' ? '' : 'none';
 });
+document.addEventListener('click', e => {
+  if (!e.target.closest('.acctwrap')) el('acctdrop').style.display = 'none';
+});
+el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
+el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
 
 showStart();
 
