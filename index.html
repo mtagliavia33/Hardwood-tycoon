@@ -1226,7 +1226,7 @@ function createAccount(name){
   if (!name) return null;
   const list = accounts();
   if (!list.includes(name)){
-    if (list.length >= 3){ alert('You can only have 3 accounts on this device.'); return null; }
+    if (list.length >= 2){ alert('You can only have 2 accounts on this device.'); return null; }
     list.push(name); saveAccounts(list);
   }
   return name;
@@ -1310,7 +1310,7 @@ function showStart(mode){
       try {
         const r = await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: n, pin: pin.value, device: deviceId(), save: local ? JSON.parse(local) : null }) });
         beginOnline(n, pin.value, r.save);
-      } catch (e) { err(e.status === 409 ? 'That name is taken — log in instead, or pick another.' : e.status === 403 ? 'This device already has 3 accounts — that\'s the max. Log in to one instead.' : 'Could not reach the server.'); }
+      } catch (e) { err(e.status === 409 ? 'That name is taken — log in instead, or pick another.' : e.status === 403 ? 'This device already has 2 accounts — that\'s the max. Log in to one instead.' : 'Could not reach the server.'); }
     };
     modal.querySelector('#go').addEventListener('click', go);
     pin.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -1418,7 +1418,7 @@ el('acctsave').addEventListener('click', async () => {
       onlineCreds = { name: raw, pin };
       player = raw;
       save(); updateAcctUI(); syncTick();
-    } catch (e) { alert(e.status === 409 ? 'That name is taken — pick another.' : e.status === 403 ? 'This device already has 3 accounts — that\'s the max.' : 'Could not reach the server.'); }
+    } catch (e) { alert(e.status === 409 ? 'That name is taken — pick another.' : e.status === 403 ? 'This device already has 2 accounts — that\'s the max.' : 'Could not reach the server.'); }
     return;
   }
   if (accounts().includes(raw) && !confirm(`"${raw}" already exists — overwrite it with your current game?`)) return;
