@@ -50,6 +50,7 @@ h1,h2,h3{margin:0 0 .5rem}
 .acctdrop button{display:block;width:100%;background:transparent;border:0;color:var(--text);text-align:left;
   padding:11px 14px;font-size:.85rem;font-weight:600}
 .acctdrop button:hover{background:var(--panel2)}
+.ghost.mini{padding:4px 8px;font-size:.7rem;border-radius:7px;margin-left:6px}
 .money{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:4px}
 .cash{font-size:1.9rem;font-weight:800;color:var(--good);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
 .persec{color:var(--dim);font-size:.95rem;font-variant-numeric:tabular-nums}
@@ -164,6 +165,7 @@ main{padding:14px 14px 30px}
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
           <button id="renamebtn">Change account name</button>
+          <button id="adminbtn">Admin panel</button>
         </div>
       </div>
     </div>
@@ -717,6 +719,92 @@ function updateAcctUI(){
     : 'Guest mode — nothing is saved. Create an account in this tab to keep your empire.';
 }
 
+/* ============================== admin ==================================== */
+// Casual protection for family play: the first person to open the panel on
+// this device sets the owner passcode (stored hashed). Admins are account
+// names the owner promotes — they get the money tools but not the account list.
+const ADMIN_KEY = 'hardwoodTycoonAdmin';
+const pinHash = s => { let h = 5381; for (const c of s) h = (h * 33 ^ c.charCodeAt(0)) >>> 0; return String(h); };
+function adminData(){ try { return JSON.parse(localStorage.getItem(ADMIN_KEY)) || {}; } catch { return {}; } }
+function saveAdmin(d){ try { localStorage.setItem(ADMIN_KEY, JSON.stringify(d)); } catch {} }
+function isAdmin(){ return !!player && (adminData().admins || []).includes(player); }
+
+function admGiveMoney(){
+  const amt = parseFloat(prompt('How much money to add (to your current world)?') || '');
+  if (!isFinite(amt) || amt <= 0) return;
+  W().cash += amt;
+  paint(); save();
+}
+function admResetMoney(){
+  if (!confirm('Set your cash to $0 in every world?')) return;
+  S.worlds.forEach(w => { w.cash = 0; });
+  paint(); save();
+}
+
+function openAdmin(){
+  el('acctdrop').style.display = 'none';
+  if (!S) return;
+  const d = adminData();
+  if (!d.ownerHash){
+    const p1 = prompt('First-time setup — choose an owner passcode.\nOnly the owner sees all accounts and grants admin:') || '';
+    if (!p1.trim()) return;
+    const p2 = prompt('Type the passcode again to confirm:') || '';
+    if (p1 !== p2){ alert("Passcodes didn't match — try again."); return; }
+    saveAdmin({ ownerHash: pinHash(p1), admins: d.admins || [] });
+    adminPanel(true);
+    return;
+  }
+  if (isAdmin()){ adminPanel(false); return; }
+  const p = prompt('Owner passcode:');
+  if (p === null) return;
+  if (pinHash(p) === d.ownerHash) adminPanel(true);
+  else alert('Wrong passcode.');
+}
+
+function adminPanel(owner){
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal';
+  modal.style.maxWidth = '440px'; modal.style.textAlign = 'left';
+  ov.appendChild(modal);
+  function render(){
+    const d = adminData(), names = accounts();
+    let rows = '';
+    if (owner){
+      rows = names.map((n, i) => {
+        let cash = 0;
+        try {
+          const s = (player === n) ? S : JSON.parse(localStorage.getItem(acctKey(n)));
+          if (s) cash = s.worlds.reduce((t, w) => t + (w.cash || 0), 0);
+        } catch {}
+        const adm = (d.admins || []).includes(n);
+        return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★ admin</span>' : ''}</span>
+          <span><b>${$$(cash)}</b><button class="ghost mini" data-adm="${i}">${adm ? 'Remove admin' : 'Make admin'}</button></span></div>`;
+      }).join('') || '<p class="dim">No accounts yet.</p>';
+    }
+    modal.innerHTML = `
+      <h2 style="text-align:center">🛠️ Admin panel${owner ? ' — owner' : ''}</h2>
+      <p class="dim" style="text-align:center">Signed in as ${esc(player || 'Guest')}</p>
+      <div class="btncol">
+        <button class="primary" id="adm-give">💵 Give myself money…</button>
+        <button class="danger" id="adm-zero" style="width:100%">Reset my money to $0</button>
+      </div>
+      ${owner
+        ? `<h3 style="margin-top:18px">All accounts</h3>${rows}`
+        : '<p class="dim" style="margin-top:14px">Only the owner can see the list of accounts.</p>'}
+      <div class="btncol"><button class="ghost" id="adm-close">Close</button></div>`;
+    modal.querySelector('#adm-give').addEventListener('click', () => { admGiveMoney(); render(); });
+    modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); render(); });
+    modal.querySelector('#adm-close').addEventListener('click', () => ov.remove());
+    if (owner) modal.querySelectorAll('[data-adm]').forEach(b => b.addEventListener('click', () => {
+      const n = names[+b.dataset.adm], dd = adminData();
+      dd.admins = (dd.admins || []).includes(n) ? dd.admins.filter(x => x !== n) : (dd.admins || []).concat(n);
+      saveAdmin(dd); render();
+    }));
+  }
+  render();
+  document.body.appendChild(ov);
+}
+
 /* ========================== leaderboards ================================= */
 function fmtTime(sec){
   sec = Math.floor(sec || 0);
@@ -857,6 +945,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.acctwrap')) el('acctdrop').style.display = 'none';
 });
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
+el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
 el('renamebtn').addEventListener('click', () => {
   el('acctdrop').style.display = 'none';
@@ -870,6 +959,8 @@ el('renamebtn').addEventListener('click', () => {
     if (raw !== null) localStorage.setItem(acctKey(n), raw);
     localStorage.removeItem(acctKey(player));
   } catch {}
+  const ad = adminData();
+  if ((ad.admins || []).includes(player)){ ad.admins = ad.admins.map(x => x === player ? n : x); saveAdmin(ad); }
   player = n;
   save(); updateAcctUI(); paint();
 });
