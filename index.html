@@ -51,6 +51,8 @@ h1,h2,h3{margin:0 0 .5rem}
   padding:11px 14px;font-size:.85rem;font-weight:600}
 .acctdrop button:hover{background:var(--panel2)}
 .ghost.mini{padding:4px 8px;font-size:.7rem;border-radius:7px;margin-left:6px}
+#sportrow{display:flex;gap:8px;flex-wrap:wrap}
+.sportbtn.on{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .money{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-top:4px}
 .cash{font-size:1.9rem;font-weight:800;color:var(--good);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
 .persec{color:var(--dim);font-size:.95rem;font-variant-numeric:tabular-nums}
@@ -159,7 +161,7 @@ main{padding:14px 14px 30px}
 <body>
 <div id="app">
   <div class="top">
-    <div class="brand"><span>🏀 Hardwood <b>Tycoon</b></span>
+    <div class="brand"><span id="brandtxt">🏀 Hardwood <b>Tycoon</b></span>
       <div class="acctwrap">
         <button class="acctbtn" id="acctmenu">👤 <span id="acctlbl">…</span> ▾</button>
         <div class="acctdrop" id="acctdrop" style="display:none">
@@ -241,6 +243,11 @@ main{padding:14px 14px 30px}
         <div class="statrow"><span>Taps</span><b id="s-taps">0</b></div>
         <div class="statrow"><span>Championships (prestiges)</span><b id="s-prest">0</b></div>
         <div class="statrow"><span>Rings</span><b id="s-rings">0</b></div>
+      </div>
+      <div class="panel">
+        <h3>Sport</h3>
+        <p class="dim">Pick your sport — same empire, new look. Saves with your account.</p>
+        <div id="sportrow"></div>
       </div>
       <div class="panel">
         <h3>Account</h3>
@@ -353,6 +360,74 @@ const WORLDS = [
 ];
 const MILESTONES = [10, 25, 50, 100, 200, 300, 400, 500, 750, 1000]; // each hit → ×2 for that business
 
+/* ------------------------------ sports ---------------------------------- */
+// A sport is a skin: identical economy, different names. BASE snapshots the
+// original basketball strings so any theme can be applied on top repeatedly.
+const BASE = WORLDS.map(w => ({ name: w.name, clickVerb: w.clickVerb,
+  biz: w.biz.map(b => [b.name, b.emoji]), ups: w.ups.map(u => u.name) }));
+const SPORTS = {
+  basketball: { label:'Basketball', ball:'🏀', brand:'Hardwood' },
+  soccer: { label:'Soccer', ball:'⚽', brand:'Pitch',
+    worldNames:['Five-a-Side City'],
+    verbs:['Play a street kickabout','Host a friendly match','Score in zero-G'],
+    biz:[
+      { 0:['Kickabouts','⚽'], 2:['Scarf Stand','🧣'], 5:['Training Ground','🏃'] },
+      { 0:['Beach Football','🏖️'], 1:['Boot Line','👟'], 2:['Youth Academy','🎓'], 3:['Euro Stadium','🏟️'] },
+      { 0:['Crater Pitches','🌑'], 1:['Shuttle Shootouts','🚀'], 6:['Zero-G Stadium','💫'] },
+    ],
+    ups:{ u0:'Better Footballs', g0:'Sand Pitches' } },
+  football: { label:'Football', ball:'🏈', brand:'Gridiron',
+    worldNames:['Friday Lights City'],
+    verbs:['Run a backyard scrimmage','Host an exhibition bowl','Throw a zero-G Hail Mary'],
+    biz:[
+      { 0:['Backyard Scrimmages','🏈'], 5:['Practice Facility','🏋️'] },
+      { 0:['Beach Flag Football','🏖️'], 1:['Cleat Line','👟'], 2:['Gridiron Academy','🎓'], 3:['Euro Dome','🏟️'] },
+      { 0:['Crater Gridirons','🌑'], 1:['Shuttle Scrimmages','🚀'], 6:['Zero-G Dome','💫'], 7:['Interplanetary Bowl','🪐'] },
+    ],
+    ups:{ u0:'Better Footballs', g0:'Sand Gridirons' } },
+  baseball: { label:'Baseball', ball:'⚾', brand:'Diamond',
+    worldNames:['Sandlot City'],
+    verbs:['Play a sandlot game','Host an exhibition series','Hit a zero-G homer'],
+    biz:[
+      { 0:['Sandlot Games','⚾'], 2:['Cap Stand','🧢'], 5:['Batting Cages','🥎'] },
+      { 0:['Beach Baseball','🏖️'], 1:['Glove Line','🧤'], 2:['Baseball Academy','🎓'], 3:['Euro Ballpark','🏟️'] },
+      { 0:['Crater Diamonds','🌑'], 1:['Shuttle Batting Practice','🚀'], 6:['Zero-G Ballpark','💫'], 7:['Interplanetary Series','🪐'] },
+    ],
+    ups:{ u0:'Better Baseballs', g0:'Sand Diamonds' } },
+};
+let sport = 'basketball';
+function applySport(id){
+  if (!SPORTS[id]) id = 'basketball';
+  sport = id;
+  const t = SPORTS[id];
+  WORLDS.forEach((w, i) => {
+    w.name = (t.worldNames && t.worldNames[i]) || BASE[i].name;
+    w.clickVerb = (t.verbs && t.verbs[i]) || BASE[i].clickVerb;
+    w.biz.forEach((b, j) => {
+      const o = t.biz && t.biz[i] && t.biz[i][j];
+      b.name = o ? o[0] : BASE[i].biz[j][0];
+      b.emoji = o ? o[1] : BASE[i].biz[j][1];
+    });
+    w.ups.forEach((u, j) => { u.name = (t.ups && t.ups[u.id]) || BASE[i].ups[j]; });
+  });
+  el('brandtxt').innerHTML = `${t.ball} ${t.brand} <b>Tycoon</b>`;
+  el('tap').textContent = t.ball;
+  document.title = `${t.brand} Tycoon — ${t.label} Idle Empire`;
+  renderSportRow();
+  if (S){ rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); }
+}
+function renderSportRow(){
+  const row = el('sportrow');
+  row.innerHTML = Object.entries(SPORTS).map(([id, t]) =>
+    `<button class="ghost sportbtn${id === sport ? ' on' : ''}" data-sport="${id}">${t.ball} ${t.label}</button>`).join('');
+  row.querySelectorAll('[data-sport]').forEach(b => b.addEventListener('click', () => {
+    if (!S) return;
+    S.sport = b.dataset.sport;
+    applySport(S.sport);
+    save();
+  }));
+}
+
 const RING_UNIT = 5e8;          // rings = cbrt(combined run earnings / RING_UNIT)
 const RING_BOOST = 0.05;        // +5% income per ring, everywhere
 const OFFLINE_CAP = 8 * 3600;   // seconds
@@ -381,7 +456,7 @@ function load(raw){
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -599,7 +674,7 @@ function rebuildUpgrades(){
     const row = document.createElement('div'); row.className = 'upg';
     row.innerHTML = `
       <div class="biz-icon">${u.type==='all'?'⭐':u.type==='biz'?WD().biz[u.biz].emoji:'👆'}</div>
-      <div class="upg-mid"><div class="upg-name">${u.name}</div><div class="upg-desc">${u.desc}</div></div>
+      <div class="upg-mid"><div class="upg-name">${u.name}</div><div class="upg-desc">${u.type==='biz' ? `${WD().biz[u.biz].name} ×${u.mult}` : u.desc}</div></div>
       ${hasUp(u.id) ? '<div class="done">✓ Owned</div>' : `<button class="buy">${$$(u.cost)}</button>`}`;
     const btn = row.querySelector('button.buy');
     if (btn) btn.addEventListener('click', () => buyUpgrade(u.id));
@@ -1034,6 +1109,7 @@ function createAccount(name){
 function startGame(name, remoteSave){
   player = name;
   S = load(remoteSave !== undefined ? remoteSave : (name ? localStorage.getItem(acctKey(name)) : null));
+  applySport(S.sport || 'basketball');
   collectOffline();
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
   updateAcctUI();
