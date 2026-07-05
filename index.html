@@ -166,6 +166,7 @@ main{padding:14px 14px 30px}
         <button class="acctbtn" id="acctmenu">👤 <span id="acctlbl">…</span> ▾</button>
         <div class="acctdrop" id="acctdrop" style="display:none">
           <button id="bonusbtn">💵 Bonus cash</button>
+          <button id="exchangebtn">💱 Exchange currency</button>
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
           <button id="renamebtn">Change account name</button>
@@ -927,6 +928,47 @@ function renderGiveRow(){
     + `<button class="ghost sportbtn give-custom">Custom…</button>`;
   wireGiveButtons(row);
 }
+// currency exchange: each world's earning scale is ~500x the previous
+// (tap base 1 / 500 / 250000), so a next-world dollar is worth 500 of the
+// current world's. Convert all of one world's cash into the next, one-way.
+const EX_RATE = 500;
+function convertAll(from){
+  if (!S) return;
+  const to = from + 1;
+  if (to >= WORLDS.length || !S.unlocked[to]) return;
+  const have = S.worlds[from].cash;
+  if (have <= 0) return;
+  S.worlds[from].cash = 0;
+  S.worlds[to].cash += have / EX_RATE;   // transfer, not minted — all-time earnings unchanged
+  paint(); save();
+}
+function exchangeModal(){
+  el('acctdrop').style.display = 'none';
+  if (!S) return;
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left';
+  ov.appendChild(modal);
+  const draw = () => {
+    const rowFor = from => {
+      const to = from + 1, a = WORLDS[from], b = WORLDS[to], have = S.worlds[from].cash;
+      if (!S.unlocked[to])
+        return `<div class="statrow"><span>${a.emoji} → ${b.emoji} <span class="dim">${a.name} → ${b.name}</span></span><span class="dim">unlock ${b.name} first</span></div>`;
+      return `<div class="statrow"><span>${a.emoji} → ${b.emoji} <span class="dim">${$$(have)} → ${$$(have / EX_RATE)}</span></span>
+        <button class="ghost mini" data-from="${from}"${have <= 0 ? ' disabled' : ''}>Convert all</button></div>`;
+    };
+    modal.innerHTML = `
+      <div style="font-size:2.4rem;text-align:center">💱</div>
+      <h2 style="text-align:center">Currency exchange</h2>
+      <p class="dim" style="text-align:center">${EX_RATE} lower-world dollars = 1 next-world dollar. One-way.</p>
+      ${rowFor(0)}${rowFor(1)}
+      <div class="btncol"><button class="ghost" id="ex-close">Done</button></div>`;
+    modal.querySelectorAll('[data-from]').forEach(b => b.addEventListener('click', () => { convertAll(+b.dataset.from); draw(); }));
+    modal.querySelector('#ex-close').addEventListener('click', () => ov.remove());
+  };
+  draw();
+  document.body.appendChild(ov);
+}
+
 function bonusCashModal(){
   el('acctdrop').style.display = 'none';
   if (!S) return;
@@ -1397,6 +1439,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.acctwrap')) el('acctdrop').style.display = 'none';
 });
 el('bonusbtn').addEventListener('click', bonusCashModal);
+el('exchangebtn').addEventListener('click', exchangeModal);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
