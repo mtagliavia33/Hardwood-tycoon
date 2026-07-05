@@ -35,7 +35,7 @@ h1,h2,h3{margin:0 0 .5rem}
 
 /* ---------- announcement ticker ---------- */
 .ticker{overflow:hidden;white-space:nowrap;background:linear-gradient(90deg,var(--accent),var(--gold));
-  color:#231400;font-weight:800;font-size:.9rem;padding:7px 0;cursor:pointer;position:sticky;top:0;z-index:20}
+  color:#231400;font-weight:800;font-size:.9rem;padding:7px 0;position:sticky;top:0;z-index:20;user-select:none}
 .ticker-inner{display:inline-block;padding-left:100%;animation:tickerscroll 18s linear infinite;will-change:transform}
 .ticker-inner::before{content:"📣 "}
 @keyframes tickerscroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
@@ -174,7 +174,7 @@ main{padding:14px 14px 30px}
 </head>
 <body>
 <div id="app">
-  <div id="ticker" class="ticker" style="display:none" title="Tap to dismiss"><div class="ticker-inner"><span id="ticker-text"></span></div></div>
+  <div id="ticker" class="ticker" style="display:none"><div class="ticker-inner"><span id="ticker-text"></span></div></div>
   <div class="top">
     <div class="brand"><span id="brandtxt">🏀 Hardwood <b>Tycoon</b></span>
       <div class="acctwrap">
@@ -1659,7 +1659,6 @@ document.addEventListener('click', e => {
 el('bonusbtn').addEventListener('click', bonusCashModal);
 el('exchangebtn').addEventListener('click', exchangeModal);
 el('messagebtn').addEventListener('click', messageOwnerModal);
-el('ticker').addEventListener('click', hideTicker);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
