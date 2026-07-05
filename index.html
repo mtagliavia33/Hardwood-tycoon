@@ -225,7 +225,7 @@ main{padding:14px 14px 30px}
     </section>
 
     <section id="tab-leaders" style="display:none">
-      <p class="dim">Top 5 players saved in this browser. Guest runs count while the tab is open.</p>
+      <p class="dim" id="lbnote">Top 5 players. Guest runs count while the tab is open.</p>
       <div class="panel"><h3>⏱️ Most time played</h3><div id="lb-time"></div></div>
       <div class="panel"><h3>💰 Most money earned</h3><div id="lb-money"></div></div>
       <div class="panel"><h3>⚡ Most money made in a second</h3><div id="lb-rate"></div></div>
@@ -378,7 +378,7 @@ function load(raw){
   try {
     const d = freshState();
     if (raw){
-      const s = JSON.parse(raw);
+      const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
       for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
@@ -678,7 +678,10 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   for (const sec of ['empire','upgrades','prestige','leaders','stats'])
     el('tab-' + sec).style.display = t.dataset.tab === sec ? '' : 'none';
-  if (t.dataset.tab === 'leaders' && S) renderLeaders();
+  if (t.dataset.tab === 'leaders' && S){
+    renderLeaders();
+    if (serverOn) api('/api/leaderboard').then(r => { lbOnline = r.rows; renderLeaders(); }).catch(() => {});
+  }
 }));
 
 /* =============================== boot ==================================== */
@@ -711,11 +714,15 @@ function updateAcctUI(){
   el('acctlbl').textContent = player || 'Guest';
   el('renamebtn').style.display = player ? '' : 'none'; // guests have no account to rename
   el('acctinfo').textContent = player
-    ? `Playing as ${player}. Your empire auto-saves to this browser.`
+    ? (onlineCreds
+        ? `Playing as ${player} (online). Your empire is saved to the server and follows you on any device.`
+        : `Playing as ${player}. Your empire auto-saves to this browser.`)
     : 'Playing as guest — progress is lost when you close the tab.';
   el('acctsave').style.display = player ? 'none' : '';
   el('savenote').textContent = player
-    ? "Auto-saves to this browser every few seconds. Every world keeps earning while you're away (up to 8h, at 50% rate)."
+    ? (onlineCreds
+        ? "Saved online every ~30 seconds. Every world keeps earning while you're away (up to 8h, at 50% rate)."
+        : "Auto-saves to this browser every few seconds. Every world keeps earning while you're away (up to 8h, at 50% rate).")
     : 'Guest mode — nothing is saved. Create an account in this tab to keep your empire.';
 }
 
@@ -730,45 +737,61 @@ const ADMIN_KEY = 'hardwoodTycoonAdmin';
 // For the GitHub Pages copy, set SYNC_URL to the Railway URL so its players sync too.
 const SYNC_URL = 'https://hardwood-tycoon.up.railway.app';
 let serverOn = false;
-function apiRoot(){
-  if (SYNC_URL) return SYNC_URL.replace(/\/+$/, '');
-  return location.protocol.startsWith('http') ? '' : null;
-}
+let apiBase = null; // resolved by checkServer: same origin when served by server.mjs, else SYNC_URL
 async function api(path, opts = {}){
-  const root = apiRoot();
-  if (root === null) throw new Error('no server');
-  const r = await fetch(root + path, { ...opts, headers: { 'content-type': 'application/json', ...(opts.headers || {}) } });
+  if (apiBase === null) throw new Error('no server');
+  const r = await fetch(apiBase + path, { ...opts, headers: { 'content-type': 'application/json', ...(opts.headers || {}) } });
   if (!r.ok) throw Object.assign(new Error('server error ' + r.status), { status: r.status });
   return r.json();
 }
 async function checkServer(){
-  try { serverOn = (await api('/api/ping')).ok === true && true; }
-  catch { serverOn = false; }
-  return serverOn;
+  const candidates = [];
+  if (location.protocol.startsWith('http')) candidates.push('');
+  if (SYNC_URL) candidates.push(SYNC_URL.replace(/\/+$/, ''));
+  for (const c of candidates){
+    try {
+      const r = await fetch(c + '/api/ping');
+      if (r.ok && (await r.json()).ok === true){ apiBase = c; serverOn = true; return true; }
+    } catch {}
+  }
+  apiBase = null; serverOn = false;
+  return false;
 }
 function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
-async function syncTick(){ // report my stats, pick up commands aimed at me
-  if (!S || !player || !serverOn) return;
+
+// online accounts: remembered {name: pin} sessions on this device
+const SESS_KEY = 'hardwoodTycoonSessions';
+let onlineCreds = null;   // {name, pin} while playing a server account
+let lbOnline = null;      // cached global leaderboard rows
+function sessions(){ try { return JSON.parse(localStorage.getItem(SESS_KEY)) || {}; } catch { return {}; } }
+function saveSessions(m){ try { localStorage.setItem(SESS_KEY, JSON.stringify(m)); } catch {} }
+function rememberSession(name, pin){ const m = sessions(); m[name] = pin; saveSessions(m); }
+function forgetSession(name){ const m = sessions(); delete m[name]; saveSessions(m); }
+
+function applyServerFlags(r){ // admin flag + queued commands from any /api response
+  const d = adminData(), has = (d.admins || []).includes(player);
+  if (typeof r.admin === 'boolean' && r.admin !== has){
+    d.admins = r.admin ? (d.admins || []).concat(player) : (d.admins || []).filter(x => x !== player);
+    saveAdmin(d);
+  }
+  let touched = false;
+  for (const c of r.commands || []){
+    if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
+    if (c.reset === true){ S = freshState(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
+  }
+  if (touched){ paint(); save(); }
+}
+async function syncTick(){ // push my save to the server, pick up commands
+  if (serverOn){ try { lbOnline = (await api('/api/leaderboard')).rows; } catch {} }
+  if (!S || !onlineCreds || !serverOn) return;
   try {
-    await api('/api/report', { method: 'POST', body: JSON.stringify({
-      name: player, cash: totalCash(), all: S.all, playtime: S.playtime,
-      peakRate: S.peakRate, rings: S.rings, prestiges: S.prestiges }) });
-    const r = await api('/api/commands?name=' + encodeURIComponent(player));
-    const d = adminData(), has = (d.admins || []).includes(player);
-    if (r.admin !== has){
-      d.admins = r.admin ? (d.admins || []).concat(player) : (d.admins || []).filter(x => x !== player);
-      saveAdmin(d);
-    }
-    let touched = false;
-    for (const c of r.commands || []){
-      if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
-      if (c.reset === true){ S = freshState(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
-    }
-    if (touched){ paint(); save(); }
+    const r = await api('/api/save', { method: 'POST', body: JSON.stringify({ ...onlineCreds, save: S }) });
+    applyServerFlags(r);
   } catch {}
 }
 checkServer().then(syncTick);
 setInterval(syncTick, 30000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) syncTick(); });
 
 const pinHash = s => { let h = 5381; for (const c of s) h = (h * 33 ^ c.charCodeAt(0)) >>> 0; return String(h); };
 function adminData(){ try { return JSON.parse(localStorage.getItem(ADMIN_KEY)) || {}; } catch { return {}; } }
@@ -956,6 +979,14 @@ function fmtTime(sec){
   return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
 }
 function leaderRows(){
+  if (serverOn && lbOnline){ // global boards from the server
+    const rows = lbOnline.map(r => ({ name: r.name, you: player === r.name,
+      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0 }));
+    const mine = rows.find(r => r.you);
+    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; } // live numbers for me
+    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate });
+    return rows;
+  }
   const rows = [];
   for (const n of accounts()){
     if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate }); continue; }
@@ -974,6 +1005,9 @@ function renderBoard(id, rows, val){
   ).join('') || '<p class="dim">No players yet — create an account and start earning.</p>';
 }
 function renderLeaders(){
+  el('lbnote').textContent = (serverOn && lbOnline)
+    ? 'Top 5 players across the whole game, every device.'
+    : 'Top 5 players saved in this browser. Guest runs count while the tab is open.';
   const rows = leaderRows(), TOP = 5;
   renderBoard('lb-time',  rows.slice().sort((a, b) => b.time  - a.time).slice(0, TOP),  r => fmtTime(r.time));
   renderBoard('lb-money', rows.slice().sort((a, b) => b.money - a.money).slice(0, TOP), r => $$(r.money));
@@ -988,9 +1022,9 @@ function createAccount(name){
   return name;
 }
 
-function startGame(name){
+function startGame(name, remoteSave){
   player = name;
-  S = load(name ? localStorage.getItem(acctKey(name)) : null);
+  S = load(remoteSave !== undefined ? remoteSave : (name ? localStorage.getItem(acctKey(name)) : null));
   collectOffline();
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
   updateAcctUI();
@@ -1003,7 +1037,103 @@ function showStart(mode){
   const modal = document.createElement('div'); modal.className = 'modal';
   ov.appendChild(modal);
   const begin = name => { ov.remove(); startGame(name); };
+  const beginOnline = (name, pin, save) => {
+    rememberSession(name, pin);
+    onlineCreds = { name, pin };
+    ov.remove();
+    startGame(name, save === undefined ? null : save);
+    syncTick();
+  };
+  const guestBlock = `
+        <div>
+          <button class="ghost" id="guest" style="width:100%">Play as guest</button>
+          <p class="fineprint">your progress doesn’t save if you close the tab</p>
+        </div>`;
+  const err = msg => { const p = modal.querySelector('#formerr'); if (p) p.textContent = msg; };
+
   function menu(){
+    if (!serverOn) return menuLocal();
+    const remembered = Object.keys(sessions());
+    modal.innerHTML = `
+      <div style="font-size:2.4rem">🏀</div>
+      <h2>Hardwood Tycoon</h2>
+      <p class="dim">Online — your account works on any device.</p>
+      <div class="btncol">
+        ${remembered.map((n, i) => `<button class="primary" data-sess="${i}">Continue as ${esc(n)}</button>`).join('')}
+        <button class="${remembered.length ? 'ghost' : 'primary'}" id="newacct">Create account</button>
+        <button class="ghost" id="loginbtn">Log in</button>
+        ${guestBlock}
+      </div>`;
+    modal.querySelectorAll('[data-sess]').forEach(b => b.addEventListener('click', async () => {
+      const n = remembered[+b.dataset.sess];
+      try {
+        const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ name: n, pin: sessions()[n] }) });
+        beginOnline(n, sessions()[n], r.save);
+      } catch { forgetSession(n); loginForm(n); }
+    }));
+    modal.querySelector('#newacct').addEventListener('click', createForm);
+    modal.querySelector('#loginbtn').addEventListener('click', () => loginForm());
+    modal.querySelector('#guest').addEventListener('click', () => begin(null));
+  }
+
+  function createForm(){
+    if (!serverOn) return createLocal();
+    modal.innerHTML = `
+      <div style="font-size:2.4rem">🏀</div>
+      <h2>Create account</h2>
+      <p class="dim">Works on any device. Remember your PIN — it's how you log in elsewhere.</p>
+      <input id="f-name" maxlength="20" placeholder="Your name" autocomplete="off">
+      <input id="f-pin" maxlength="30" placeholder="PIN (4+ characters)" autocomplete="off">
+      <p class="fineprint" id="formerr" style="color:var(--bad)"></p>
+      <div class="btncol">
+        <button class="primary" id="go">Start playing</button>
+        <button class="ghost" id="back">Back</button>
+      </div>`;
+    const name = modal.querySelector('#f-name'), pin = modal.querySelector('#f-pin');
+    const go = async () => {
+      const n = (name.value || '').trim().slice(0, 20);
+      if (!n) return err('Pick a name first.');
+      if ((pin.value || '').length < 4) return err('PIN must be at least 4 characters.');
+      const local = localStorage.getItem(acctKey(n)); // carry over this device's old save if one exists
+      try {
+        const r = await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: n, pin: pin.value, save: local ? JSON.parse(local) : null }) });
+        beginOnline(n, pin.value, r.save);
+      } catch (e) { err(e.status === 409 ? 'That name is taken — log in instead, or pick another.' : 'Could not reach the server.'); }
+    };
+    modal.querySelector('#go').addEventListener('click', go);
+    pin.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    modal.querySelector('#back').addEventListener('click', menu);
+    name.focus();
+  }
+
+  function loginForm(prefill){
+    modal.innerHTML = `
+      <div style="font-size:2.4rem">🏀</div>
+      <h2>Log in</h2>
+      <p class="dim">Use the name and PIN you created your account with — on any device.</p>
+      <input id="f-name" maxlength="20" placeholder="Your name" autocomplete="off" value="${esc(prefill || '')}">
+      <input id="f-pin" maxlength="30" placeholder="PIN" autocomplete="off">
+      <p class="fineprint" id="formerr" style="color:var(--bad)"></p>
+      <div class="btncol">
+        <button class="primary" id="go">Log in</button>
+        <button class="ghost" id="back">Back</button>
+      </div>`;
+    const name = modal.querySelector('#f-name'), pin = modal.querySelector('#f-pin');
+    const go = async () => {
+      const n = (name.value || '').trim().slice(0, 20);
+      if (!n || !pin.value) return err('Enter your name and PIN.');
+      try {
+        const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ name: n, pin: pin.value }) });
+        beginOnline(n, pin.value, r.save);
+      } catch (e) { err(e.status === 401 ? 'Wrong name or PIN.' : 'Could not reach the server.'); }
+    };
+    modal.querySelector('#go').addEventListener('click', go);
+    pin.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    modal.querySelector('#back').addEventListener('click', menu);
+    (prefill ? pin : name).focus();
+  }
+
+  function menuLocal(){ // offline fallback: device-only accounts, as before
     const list = accounts();
     modal.innerHTML = `
       <div style="font-size:2.4rem">🏀</div>
@@ -1011,17 +1141,14 @@ function showStart(mode){
       <div class="btncol">
         ${list.map((n, i) => `<button class="primary" data-acct="${i}">Continue as ${esc(n)}</button>`).join('')}
         <button class="${list.length ? 'ghost' : 'primary'}" id="newacct">Create account</button>
-        <div>
-          <button class="ghost" id="guest" style="width:100%">Play as guest</button>
-          <p class="fineprint">your progress doesn’t save if you close the tab</p>
-        </div>
+        ${guestBlock}
       </div>`;
     modal.querySelectorAll('[data-acct]').forEach(b =>
       b.addEventListener('click', () => begin(accounts()[+b.dataset.acct])));
-    modal.querySelector('#newacct').addEventListener('click', form);
+    modal.querySelector('#newacct').addEventListener('click', createLocal);
     modal.querySelector('#guest').addEventListener('click', () => begin(null));
   }
-  function form(){
+  function createLocal(){
     modal.innerHTML = `
       <div style="font-size:2.4rem">🏀</div>
       <h2>Create account</h2>
@@ -1035,10 +1162,11 @@ function showStart(mode){
     const go = () => { const n = createAccount(inp.value); if (n) begin(n); else inp.focus(); };
     modal.querySelector('#go').addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-    modal.querySelector('#back').addEventListener('click', menu);
+    modal.querySelector('#back').addEventListener('click', menuLocal);
     inp.focus();
   }
-  if (mode === 'create') form(); else menu();
+
+  if (mode === 'create') createForm(); else menu();
   document.body.appendChild(ov);
 }
 
@@ -1065,19 +1193,35 @@ el('hardreset').addEventListener('click', () => {
   if (!confirm('Really? This cannot be undone.')) return;
   S = freshState(); save(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
 });
-el('acctsave').addEventListener('click', () => {
+el('acctsave').addEventListener('click', async () => {
   if (!S || player) return;
   const raw = (prompt('Account name?') || '').trim().slice(0, 20);
   if (!raw) return;
+  if (serverOn){ // create an online account seeded with the guest run
+    const pin = prompt('Choose a PIN (4+ characters) so you can log in on any device:') || '';
+    if (pin.length < 4){ alert('PIN must be at least 4 characters.'); return; }
+    try {
+      await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: raw, pin, save: S }) });
+      rememberSession(raw, pin);
+      onlineCreds = { name: raw, pin };
+      player = raw;
+      save(); updateAcctUI(); syncTick();
+    } catch (e) { alert(e.status === 409 ? 'That name is taken — pick another.' : 'Could not reach the server.'); }
+    return;
+  }
   if (accounts().includes(raw) && !confirm(`"${raw}" already exists — overwrite it with your current game?`)) return;
   player = createAccount(raw);
   save(); updateAcctUI();
 });
-function leaveGame(mode){ // save (accounts only) and return to the start screen
+function leaveGame(mode){ // save and return to the start screen
   if (!S) return;
   if (!player && S.all > 0 && !confirm('Leave your guest game? Guest progress is not saved.')) return;
   save();
-  S = null; player = null;
+  if (onlineCreds && serverOn){ // final push, captured before the state is cleared
+    const body = JSON.stringify({ ...onlineCreds, save: S });
+    api('/api/save', { method: 'POST', body }).catch(() => {});
+  }
+  S = null; player = null; onlineCreds = null;
   showStart(mode);
 }
 el('switchbtn').addEventListener('click', () => leaveGame());
@@ -1091,11 +1235,21 @@ document.addEventListener('click', e => {
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
-el('renamebtn').addEventListener('click', () => {
+el('renamebtn').addEventListener('click', async () => {
   el('acctdrop').style.display = 'none';
   if (!S || !player) return;
   const n = (prompt(`New name for ${player}?`, player) || '').trim().slice(0, 20);
   if (!n || n === player) return;
+  if (onlineCreds){ // online account: rename on the server
+    try {
+      await api('/api/rename', { method: 'POST', body: JSON.stringify({ ...onlineCreds, newName: n }) });
+      forgetSession(player); rememberSession(n, onlineCreds.pin);
+      onlineCreds = { ...onlineCreds, name: n };
+      player = n;
+      updateAcctUI(); paint();
+    } catch (e) { alert(e.status === 409 ? `"${n}" is already taken.` : 'Could not reach the server.'); }
+    return;
+  }
   if (accounts().includes(n)){ alert(`"${n}" is already taken by another account.`); return; }
   saveAccounts(accounts().map(x => x === player ? n : x));
   try {
@@ -1109,7 +1263,7 @@ el('renamebtn').addEventListener('click', () => {
   save(); updateAcctUI(); paint();
 });
 
-showStart();
+checkServer().then(() => showStart());
 
 // game loop: 4 ticks/sec income for every unlocked world, repaint each tick
 let lastTick = performance.now();
