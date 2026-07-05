@@ -416,9 +416,9 @@ const BASE = WORLDS.map(w => ({ name: w.name, clickVerb: w.clickVerb,
   biz: w.biz.map(b => [b.name, b.emoji]), ups: w.ups.map(u => u.name) }));
 const SPORTS = {
   basketball: { label:'Basketball', ball:'🏀', brand:'Hardwood',
-    pets:[['🐿️','Bench Squirrel'],['🐇','Fast-Break Hare'],['🐆','Court Cheetah'],['🦅','Dunk Eagle'],['🐐','The GOAT']] },
+    pets:[['🐿️','Bench Squirrel'],['🐇','Fast-Break Hare'],['🐆','Court Cheetah'],['🦅','Dunk Eagle'],['🐐','The GOAT'],['🌟','Immortal MVP']] },
   soccer: { label:'Soccer', ball:'⚽', brand:'Kick',
-    pets:[['🐁','Pitch Mouse'],['🐕','Match Hound'],['🦊','Winger Fox'],['🦅','Striker Falcon'],['🦁','King of the Pitch']],
+    pets:[['🐁','Pitch Mouse'],['🐕','Match Hound'],['🦊','Winger Fox'],['🦅','Striker Falcon'],['🦁','King of the Pitch'],['👑','Football God']],
     worldNames:['Five-a-Side City'],
     verbs:['Play a street kickabout','Host a friendly match','Score in zero-G'],
     biz:[
@@ -428,7 +428,7 @@ const SPORTS = {
     ],
     ups:{ u0:'Better Footballs', g0:'Sand Pitches' } },
   football: { label:'Football', ball:'🏈', brand:'Gridiron',
-    pets:[['🐹','Bench Hamster'],['🐗','Blitz Boar'],['🐅','Endzone Tiger'],['🦬','Gridiron Bison'],['🦅','Hail-Mary Eagle']],
+    pets:[['🐹','Bench Hamster'],['🐗','Blitz Boar'],['🐅','Endzone Tiger'],['🦬','Gridiron Bison'],['🦅','Hail-Mary Eagle'],['🐲','Gridiron Titan']],
     worldNames:['Friday Lights City'],
     verbs:['Run a backyard scrimmage','Host an exhibition bowl','Throw a zero-G Hail Mary'],
     biz:[
@@ -438,7 +438,7 @@ const SPORTS = {
     ],
     ups:{ u0:'Better Footballs', g0:'Sand Gridirons' } },
   baseball: { label:'Baseball', ball:'⚾', brand:'Diamond',
-    pets:[['🐤','Rookie Chick'],['🐕','Outfield Dog'],['🦝','Dugout Raccoon'],['🦅','Home-Run Hawk'],['🐉','Grand-Slam Dragon']],
+    pets:[['🐤','Rookie Chick'],['🐕','Outfield Dog'],['🦝','Dugout Raccoon'],['🦅','Home-Run Hawk'],['🐉','Grand-Slam Dragon'],['🌟','Cosmic Slugger']],
     worldNames:['Sandlot City'],
     verbs:['Play a sandlot game','Host an exhibition series','Hit a zero-G homer'],
     biz:[
@@ -579,11 +579,12 @@ function allMult(wi = S.cur){
 // pet boosts either cash income or ring gain; the best owned pet of each
 // kind is active. Pets are stored by rarity+kind and re-themed to the sport.
 const RARITIES = [
-  { key:'common',    label:'Common',     color:'#9fb0c9', rate:0.60, cash:1.10, ring:1.02 },
-  { key:'superrare', label:'Super Rare', color:'#4d9bff', rate:0.25, cash:1.25, ring:1.05 },
-  { key:'epic',      label:'Epic',       color:'#b96bff', rate:0.10, cash:1.50, ring:1.10 },
-  { key:'mythic',    label:'Mythic',     color:'#ff5d7a', rate:0.04, cash:2.00, ring:1.25 },
-  { key:'legendary', label:'Legendary',  color:'#ffd166', rate:0.01, cash:3.00, ring:1.50 },
+  { key:'common',         label:'Common',          color:'#9fb0c9', rate:0.60,  cash:1.10, ring:1.02 },
+  { key:'superrare',      label:'Super Rare',      color:'#4d9bff', rate:0.25,  cash:1.25, ring:1.05 },
+  { key:'epic',           label:'Epic',            color:'#b96bff', rate:0.10,  cash:1.50, ring:1.10 },
+  { key:'mythic',         label:'Mythic',          color:'#ff5d7a', rate:0.035, cash:2.00, ring:1.25 },
+  { key:'legendary',      label:'Legendary',       color:'#ffd166', rate:0.01,  cash:3.00, ring:1.50 },
+  { key:'ultralegendary', label:'Ultra Legendary', color:'#35e6ff', rate:0.005, cash:5.00, ring:2.00 },
 ];
 const rarityIdx = key => RARITIES.findIndex(r => r.key === key);
 function petTheme(ri){ const p = (SPORTS[sport] && SPORTS[sport].pets) || SPORTS.basketball.pets; return p[ri] || ['🐾','Pet']; }
