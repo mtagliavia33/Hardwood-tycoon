@@ -245,6 +245,11 @@ main{padding:14px 14px 30px}
         <div class="statrow"><span>Rings</span><b id="s-rings">0</b></div>
       </div>
       <div class="panel">
+        <h3>💵 Bonus cash</h3>
+        <p class="dim">Give yourself a cash boost anytime, added to the world you're in. (It doesn't count toward the money-earned leaderboard, so ranks stay fair.)</p>
+        <div id="giverow"></div>
+      </div>
+      <div class="panel">
         <h3>Sport</h3>
         <p class="dim">Pick your sport — same empire, new look. Saves with your account.</p>
         <div id="sportrow"></div>
@@ -875,6 +880,25 @@ function adminData(){ try { return JSON.parse(localStorage.getItem(ADMIN_KEY)) |
 function saveAdmin(d){ try { localStorage.setItem(ADMIN_KEY, JSON.stringify(d)); } catch {} }
 function isAdmin(){ return !!player && (adminData().admins || []).includes(player); }
 
+// player-facing bonus cash: adds to current-world cash, never to all-time
+// earnings, so the "money earned" leaderboard reflects real play only.
+function giveSelf(amt){
+  if (!S || !isFinite(amt) || amt <= 0) return;
+  W().cash += amt;
+  paint(); save();
+}
+function renderGiveRow(){
+  const row = el('giverow'); if (!row) return;
+  const amts = [[1e3,'+$1K'],[1e6,'+$1M'],[1e9,'+$1B'],[1e12,'+$1T'],[1e15,'+$1Qa']];
+  row.innerHTML = amts.map(([v,l]) => `<button class="ghost sportbtn" data-amt="${v}">${l}</button>`).join('')
+    + `<button class="ghost sportbtn" id="give-custom">Custom…</button>`;
+  row.querySelectorAll('[data-amt]').forEach(b => b.addEventListener('click', () => giveSelf(+b.dataset.amt)));
+  el('give-custom').addEventListener('click', () => {
+    const a = parseFloat(prompt('How much money do you want?') || '');
+    if (isFinite(a) && a > 0) giveSelf(a);
+  });
+}
+
 function admGiveMoney(){
   const amt = parseFloat(prompt('How much money to add (to your current world)?') || '');
   if (!isFinite(amt) || amt <= 0) return;
@@ -1110,6 +1134,7 @@ function startGame(name, remoteSave){
   player = name;
   S = load(remoteSave !== undefined ? remoteSave : (name ? localStorage.getItem(acctKey(name)) : null));
   applySport(S.sport || 'basketball');
+  renderGiveRow();
   collectOffline();
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
   updateAcctUI();
