@@ -230,6 +230,7 @@ main{padding:14px 14px 30px}
       <div class="panel"><h3>⏱️ Most time played</h3><div id="lb-time"></div></div>
       <div class="panel"><h3>💰 Most money earned</h3><div id="lb-money"></div></div>
       <div class="panel"><h3>⚡ Most money made in a second</h3><div id="lb-rate"></div></div>
+      <div class="panel"><h3>💍 Most rings</h3><div id="lb-rings"></div></div>
     </section>
 
     <section id="tab-stats" style="display:none">
@@ -988,21 +989,21 @@ function fmtTime(sec){
 function leaderRows(){
   if (serverOn && lbOnline){ // global boards from the server
     const rows = lbOnline.map(r => ({ name: r.name, you: player === r.name,
-      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0 }));
+      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0 }));
     const mine = rows.find(r => r.you);
-    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; } // live numbers for me
-    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate });
+    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; } // live numbers for me
+    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings });
     return rows;
   }
   const rows = [];
   for (const n of accounts()){
-    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate }); continue; }
+    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings }); continue; }
     try {
       const s = JSON.parse(localStorage.getItem(acctKey(n)));
-      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0 });
+      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0 });
     } catch {}
   }
-  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate });
+  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings });
   return rows;
 }
 function renderBoard(id, rows, val){
@@ -1019,6 +1020,7 @@ function renderLeaders(){
   renderBoard('lb-time',  rows.slice().sort((a, b) => b.time  - a.time).slice(0, TOP),  r => fmtTime(r.time));
   renderBoard('lb-money', rows.slice().sort((a, b) => b.money - a.money).slice(0, TOP), r => $$(r.money));
   renderBoard('lb-rate',  rows.slice().sort((a, b) => b.rate  - a.rate).slice(0, TOP),  r => $$(r.rate) + '/sec');
+  renderBoard('lb-rings', rows.slice().sort((a, b) => b.rings - a.rings).slice(0, TOP), r => `${(r.rings || 0).toLocaleString()} 💍`);
 }
 
 function createAccount(name){

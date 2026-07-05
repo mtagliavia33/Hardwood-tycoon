@@ -127,7 +127,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/leaderboard' && req.method === 'GET'){
     const rows = Object.entries(db.accounts).map(([name, a]) => {
       const s = statsOf(a.save);
-      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, lastSeen: a.lastSeen };
+      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, lastSeen: a.lastSeen };
     });
     return send(res, 200, { rows });
   }
