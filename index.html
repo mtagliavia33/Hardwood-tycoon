@@ -168,6 +168,8 @@ main{padding:14px 14px 30px}
   padding:11px 12px;color:inherit;font-family:inherit;font-size:.95rem;margin-top:14px;resize:vertical}
 .msg{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;text-align:left}
 .msg.unread{border-color:var(--gold)}
+.modal select{width:100%;box-sizing:border-box;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;color:inherit;font-family:inherit;font-size:.95rem;margin-top:6px}
+.modal .statrow input{width:120px;margin:0;text-align:right}
 #petgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
 .pet{border:1px solid var(--line);border-radius:12px;padding:9px 6px;text-align:center;background:var(--panel2);position:relative}
 .pet .pemoji{font-size:1.9rem;line-height:1}
@@ -193,6 +195,7 @@ main{padding:14px 14px 30px}
         <div class="acctdrop" id="acctdrop" style="display:none">
           <button id="bonusbtn">💵 Bonus cash</button>
           <button id="exchangebtn">💱 Exchange currency</button>
+          <button id="tradebtn">🤝 Trade pets</button>
           <button id="messagebtn">✉️ Message the owner</button>
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
@@ -1043,7 +1046,7 @@ function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 
 // persistent scrolling ticker: always shows the 4x-boost schedule, plus the
 // owner's announcement (if any) in front of it.
-let manualAnnounce = null, tickerText = null;
+let manualAnnounce = null, tickerText = null, myTrades = { incoming: [], outgoing: [] };
 function boostActive(){ const d = new Date().getDay(); return d === 0 || d === 3; } // Sun & Wed
 function boostMult(){ return boostActive() ? 4 : 1; }
 const GOAT_RINGS = 20000000;                                   // GOAT status milestone
@@ -1098,6 +1101,12 @@ function applyServerFlags(r){ // admin flag + queued commands from any /api resp
     if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
     if (c.reset === true){ const keptPets = S.pets; S = freshState(); S.pets = keptPets || {}; rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
     if (typeof c.message === 'string' && c.message) msgs.push(c.message);
+    if (c.trade){ // received pets/money from a trade
+      S.pets = S.pets || {};
+      for (const k in (c.trade.pets || {})) S.pets[k] = (S.pets[k] || 0) + c.trade.pets[k];
+      if (c.trade.money) W().cash += c.trade.money;
+      touched = true;
+    }
   }
   if (touched){ paint(); save(); }
   if (msgs.length) showNotice('💬', 'Message from the owner', msgs.map(esc).join('<hr style="border:none;border-top:1px solid var(--line);margin:10px 0">'));
@@ -1124,6 +1133,7 @@ async function syncTick(){ // push my save to the server, pick up commands
   try {
     const r = await api('/api/save', { method: 'POST', body: JSON.stringify({ ...onlineCreds, save: S }) });
     applyServerFlags(r);
+    if (r.trades) myTrades = r.trades;
   } catch {}
 }
 checkServer().then(syncTick);
@@ -1200,6 +1210,120 @@ function messageOwnerModal(){
   });
   document.body.appendChild(ov);
   ta.focus();
+}
+
+/* ------------------------------ trading --------------------------------- */
+function petLabel(key){ const { rk, vi } = parsePetKey(key), ri = rarityIdx(rk); const [emoji, name] = petTheme(ri, vi); return emoji + ' ' + name; }
+function petsSummary(pets){ return Object.keys(pets || {}).map(k => `${petLabel(k)}×${pets[k]}`).join(', '); }
+function tradeText(side){ return [petsSummary(side.pets), side.money > 0 ? $$(side.money) : ''].filter(Boolean).join(' + ') || 'nothing'; }
+
+async function tradeModal(){
+  el('acctdrop').style.display = 'none';
+  if (!S) return;
+  if (!serverOn || !onlineCreds){ alert('Trading needs an online account — log in first (guests can\'t trade).'); return; }
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left'; modal.style.maxWidth = '460px';
+  ov.appendChild(modal);
+  let roster = {}, view = 'list', recipient = '', giveSel = {}, wantSel = {}, giveMoney = 0, wantMoney = 0;
+  const refresh = async () => { try { myTrades = await api('/api/trade/list?name=' + encodeURIComponent(player)); } catch {} };
+  const loadRoster = async () => { try { roster = (await api('/api/roster')).players || {}; } catch { roster = {}; } };
+
+  async function acceptTrade(id){
+    const t = (myTrades.incoming || []).find(x => x.id === id); if (!t) return;
+    for (const k in t.want.pets) if ((S.pets[k] || 0) < t.want.pets[k]) return alert("You don't have the pets they want.");
+    if (W().cash < t.want.money) return alert('You need ' + $$(t.want.money) + ' in your current world to accept.');
+    for (const k in t.want.pets){ S.pets[k] -= t.want.pets[k]; if (S.pets[k] <= 0) delete S.pets[k]; }
+    W().cash -= t.want.money; save();
+    try {
+      const r = await api('/api/trade/resolve', { method: 'POST', body: JSON.stringify({ ...onlineCreds, id, action: 'accept' }) });
+      const d = r.deliver || { pets: {}, money: 0 };
+      S.pets = S.pets || {};
+      for (const k in (d.pets || {})) S.pets[k] = (S.pets[k] || 0) + d.pets[k];
+      if (d.money) W().cash += d.money;
+      save(); syncTick();
+    } catch (e) {
+      for (const k in t.want.pets) S.pets[k] = (S.pets[k] || 0) + t.want.pets[k];
+      W().cash += t.want.money; save();
+      alert(e.status === 404 ? 'That trade was already cancelled.' : 'Trade failed — try again.');
+    }
+    paint(); await refresh(); render();
+  }
+  async function resolveTrade(id, action){
+    try { await api('/api/trade/resolve', { method: 'POST', body: JSON.stringify({ ...onlineCreds, id, action }) }); } catch {}
+    await refresh(); render();
+  }
+  async function sendOffer(){
+    const err = t => { const p = modal.querySelector('#tr-err'); if (p) p.textContent = t; };
+    if (!recipient) return err('Pick a player to trade with.');
+    const give = { pets: { ...giveSel }, money: giveMoney }, want = { pets: { ...wantSel }, money: wantMoney };
+    if (!Object.keys(give.pets).length && !Object.keys(want.pets).length) return err('A trade must include at least one pet.');
+    for (const k in give.pets) if ((S.pets[k] || 0) < give.pets[k]) return err("You don't own that many pets.");
+    if (W().cash < give.money) return err('Not enough money in your current world.');
+    for (const k in give.pets){ S.pets[k] -= give.pets[k]; if (S.pets[k] <= 0) delete S.pets[k]; }
+    W().cash -= give.money; save();
+    try { await api('/api/trade/create', { method: 'POST', body: JSON.stringify({ ...onlineCreds, to: recipient, give, want }) }); }
+    catch (e) {
+      for (const k in give.pets) S.pets[k] = (S.pets[k] || 0) + give.pets[k];
+      W().cash += give.money; save();
+      return err(e.status === 400 ? 'A trade must include at least one pet.' : 'Could not reach the server.');
+    }
+    await syncTick(); giveSel = {}; wantSel = {}; giveMoney = 0; wantMoney = 0; view = 'list'; await refresh(); render(); paint();
+  }
+
+  function petRows(source, sel, tag){
+    const keys = Object.keys(source || {}).filter(k => source[k] > 0);
+    if (!keys.length) return '<p class="dim">No pets.</p>';
+    return keys.map(k => `<div class="statrow"><span>${petLabel(k)} <span class="dim">(have ${source[k]})</span></span><span><button class="ghost mini" data-${tag}m="${k}">−</button> ${sel[k] || 0} <button class="ghost mini" data-${tag}p="${k}">+</button></span></div>`).join('');
+  }
+  function listView(){
+    const inc = myTrades.incoming || [], out = myTrades.outgoing || [];
+    modal.innerHTML = `
+      <div style="font-size:2.2rem;text-align:center">🤝</div>
+      <h2 style="text-align:center">Trade pets</h2>
+      <h3>Offers to you (${inc.length})</h3>
+      ${inc.length ? inc.map(t => `<div class="msg"><div><b>${esc(t.from)}</b> gives you: ${esc(tradeText(t.give))}</div><div class="dim">for your: ${esc(tradeText(t.want))}</div><div class="btncol" style="margin-top:8px"><button class="primary" data-acc="${t.id}">Accept</button><button class="ghost" data-dec="${t.id}">Decline</button></div></div>`).join('') : '<p class="dim">No incoming offers.</p>'}
+      <h3 style="margin-top:16px">Your sent offers (${out.length})</h3>
+      ${out.length ? out.map(t => `<div class="msg"><div>To <b>${esc(t.to)}</b> — give: ${esc(tradeText(t.give))}</div><div class="dim">want: ${esc(tradeText(t.want))}</div><button class="ghost mini" data-cancel="${t.id}" style="margin-top:6px;border-color:var(--bad);color:var(--bad)">Cancel</button></div>`).join('') : '<p class="dim">No sent offers.</p>'}
+      <div class="btncol"><button class="primary" id="tr-new">➕ New trade</button><button class="ghost" id="tr-close">Close</button></div>`;
+    modal.querySelectorAll('[data-acc]').forEach(b => b.addEventListener('click', () => acceptTrade(+b.dataset.acc)));
+    modal.querySelectorAll('[data-dec]').forEach(b => b.addEventListener('click', () => resolveTrade(+b.dataset.dec, 'decline')));
+    modal.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => resolveTrade(+b.dataset.cancel, 'cancel')));
+    modal.querySelector('#tr-new').addEventListener('click', () => { view = 'new'; render(); });
+    modal.querySelector('#tr-close').addEventListener('click', () => ov.remove());
+  }
+  function newView(){
+    const names = Object.keys(roster).filter(n => n !== player);
+    if (!recipient && names.length) recipient = names[0];
+    const theirs = roster[recipient] || {};
+    modal.innerHTML = `
+      <h2 style="text-align:center">🤝 New trade</h2>
+      <p class="dim">Trade with:</p>
+      <select id="tr-to">${names.length ? names.map(n => `<option${n === recipient ? ' selected' : ''}>${esc(n)}</option>`).join('') : '<option>(no other players yet)</option>'}</select>
+      <h3 style="margin-top:12px">You give</h3>
+      ${petRows(S.pets, giveSel, 'g')}
+      <div class="statrow"><span>💰 Money</span><input id="tr-gm" type="number" min="0" value="${giveMoney}"></div>
+      <h3 style="margin-top:12px">You want${recipient ? ' from ' + esc(recipient) : ''}</h3>
+      ${petRows(theirs, wantSel, 'w')}
+      <div class="statrow"><span>💰 Money</span><input id="tr-wm" type="number" min="0" value="${wantMoney}"></div>
+      <p class="dim" style="font-size:.72rem">A trade must include at least one pet.</p>
+      <p class="fineprint" id="tr-err" style="color:var(--bad)"></p>
+      <div class="btncol"><button class="primary" id="tr-send">Send offer</button><button class="ghost" id="tr-back">Back</button></div>`;
+    const to = modal.querySelector('#tr-to');
+    if (to) to.addEventListener('change', () => { recipient = to.value; wantSel = {}; render(); });
+    modal.querySelectorAll('[data-gp]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.gp; giveSel[k] = Math.min((giveSel[k] || 0) + 1, S.pets[k] || 0); render(); }));
+    modal.querySelectorAll('[data-gm]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.gm; giveSel[k] = Math.max((giveSel[k] || 0) - 1, 0); if (!giveSel[k]) delete giveSel[k]; render(); }));
+    modal.querySelectorAll('[data-wp]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.wp; wantSel[k] = Math.min((wantSel[k] || 0) + 1, theirs[k] || 0); render(); }));
+    modal.querySelectorAll('[data-wm]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.wm; wantSel[k] = Math.max((wantSel[k] || 0) - 1, 0); if (!wantSel[k]) delete wantSel[k]; render(); }));
+    const gm = modal.querySelector('#tr-gm'), wm = modal.querySelector('#tr-wm');
+    gm.addEventListener('input', () => { giveMoney = Math.max(0, +gm.value || 0); });
+    wm.addEventListener('input', () => { wantMoney = Math.max(0, +wm.value || 0); });
+    modal.querySelector('#tr-send').addEventListener('click', sendOffer);
+    modal.querySelector('#tr-back').addEventListener('click', () => { view = 'list'; render(); });
+  }
+  function render(){ (view === 'new' ? newView : listView)(); }
+  modal.innerHTML = '<p class="dim">Loading…</p>';
+  document.body.appendChild(ov);
+  await loadRoster(); await refresh(); render();
 }
 
 function exchangeModal(){
@@ -1855,6 +1979,7 @@ document.addEventListener('click', e => {
 });
 el('bonusbtn').addEventListener('click', bonusCashModal);
 el('exchangebtn').addEventListener('click', exchangeModal);
+el('tradebtn').addEventListener('click', tradeModal);
 el('messagebtn').addEventListener('click', messageOwnerModal);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);

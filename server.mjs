@@ -12,7 +12,11 @@ const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 } };
+let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, trades: [], tradeSeq: 0 };
+const petKeyOk = k => typeof k === 'string' && /^[a-z]+:(\d+:)?(cash|rings)$/.test(k);
+function cleanPets(o){ const out = {}; if (o && typeof o === 'object') for (const k in o){ const n = Math.floor(num(o[k])); if (n > 0 && petKeyOk(k)) out[k] = n; } return out; }
+function tradesFor(name){ return { incoming: db.trades.filter(t => t.to === name), outgoing: db.trades.filter(t => t.from === name) }; }
+function queueTrade(name, pets, money){ (db.commands[name] = db.commands[name] || []).push({ trade: { pets: pets || {}, money: num(money) } }); }
 // active announcement: blanks out the text once its 'until' time has passed
 function activeAnnouncement(){
   const a = db.announcement || { text: '', id: 0, at: 0, until: 0 };
@@ -103,7 +107,7 @@ const server = http.createServer(async (req, res) => {
     const got = auth(b);
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     got.a.lastSeen = Date.now(); persist();
-    return send(res, 200, { ok: true, save: got.a.save, admin: db.admins.includes(got.name) });
+    return send(res, 200, { ok: true, save: got.a.save, admin: db.admins.includes(got.name), trades: tradesFor(got.name) });
   }
 
   // push the current save; response carries pending admin commands + admin flag
@@ -113,7 +117,7 @@ const server = http.createServer(async (req, res) => {
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     if (b.save && typeof b.save === 'object') got.a.save = b.save;
     got.a.lastSeen = Date.now(); persist();
-    return send(res, 200, { ok: true, commands: takeCommands(got.name), admin: db.admins.includes(got.name) });
+    return send(res, 200, { ok: true, commands: takeCommands(got.name), admin: db.admins.includes(got.name), trades: tradesFor(got.name) });
   }
 
   // rename an account (auth by pin)
@@ -220,6 +224,67 @@ const server = http.createServer(async (req, res) => {
     if (Object.keys(cmd).length) (db.commands[name] = db.commands[name] || []).push(cmd);
     persist();
     return send(res, 200, { ok: true });
+  }
+
+  // roster: everyone's pets, for picking a trade partner and their pets
+  if (url.pathname === '/api/roster' && req.method === 'GET'){
+    const players = {};
+    for (const [name, a] of Object.entries(db.accounts)) players[name] = (a.save && a.save.pets) || {};
+    return send(res, 200, { players });
+  }
+
+  // current trades involving a player
+  if (url.pathname === '/api/trade/list' && req.method === 'GET'){
+    return send(res, 200, tradesFor(cleanName(url.searchParams.get('name'))));
+  }
+
+  // create a trade offer. The creator's 'give' items are escrowed client-side
+  // (already deducted) and recorded here so they can be refunded.
+  if (url.pathname === '/api/trade/create' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    const to = cleanName(b && b.to);
+    if (!to || !db.accounts[to]) return send(res, 400, { error: 'Unknown player.' });
+    if (to === got.name) return send(res, 400, { error: "You can't trade with yourself." });
+    const give = { pets: cleanPets(b.give && b.give.pets), money: Math.max(0, num(b.give && b.give.money)) };
+    const want = { pets: cleanPets(b.want && b.want.pets), money: Math.max(0, num(b.want && b.want.money)) };
+    if (!Object.keys(give.pets).length && !Object.keys(want.pets).length)
+      return send(res, 400, { error: 'A trade must include at least one pet.' });
+    const trade = { id: ++db.tradeSeq, from: got.name, to, give, want, at: Date.now() };
+    db.trades.push(trade);
+    if (db.trades.length > 500) db.trades = db.trades.slice(-500);
+    persist();
+    return send(res, 200, { ok: true, id: trade.id });
+  }
+
+  // accept / decline (recipient) or cancel (creator) a trade
+  if (url.pathname === '/api/trade/resolve' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    const i = db.trades.findIndex(t => t.id === num(b && b.id));
+    if (i < 0) return send(res, 404, { error: 'That trade is no longer available.' });
+    const t = db.trades[i], action = b && b.action;
+    if (action === 'accept'){
+      if (got.name !== t.to) return send(res, 403, { error: 'Not your trade to accept.' });
+      queueTrade(t.from, t.want.pets, t.want.money);   // creator receives what they wanted (acceptor gave it)
+      db.trades.splice(i, 1); persist();
+      return send(res, 200, { ok: true, deliver: t.give });   // acceptor receives the offered items
+    }
+    if (action === 'decline'){
+      if (got.name !== t.to) return send(res, 403, { error: 'Not your trade.' });
+      queueTrade(t.from, t.give.pets, t.give.money);   // refund the creator's escrow
+      db.trades.splice(i, 1); persist();
+      return send(res, 200, { ok: true });
+    }
+    if (action === 'cancel'){
+      if (got.name !== t.from) return send(res, 403, { error: 'Not your trade.' });
+      queueTrade(t.from, t.give.pets, t.give.money);   // refund the creator's escrow
+      db.trades.splice(i, 1); persist();
+      return send(res, 200, { ok: true });
+    }
+    return send(res, 400, { error: 'Unknown action.' });
   }
 
   send(res, 404, { error: 'not found' });
