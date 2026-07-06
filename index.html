@@ -418,9 +418,9 @@ const BASE = WORLDS.map(w => ({ name: w.name, clickVerb: w.clickVerb,
   biz: w.biz.map(b => [b.name, b.emoji]), ups: w.ups.map(u => u.name) }));
 const SPORTS = {
   basketball: { label:'Basketball', ball:'🏀', brand:'Hardwood',
-    pets:[['🐿️','Bench Squirrel'],['🐇','Fast-Break Hare'],['🐆','Court Cheetah'],['🦅','Dunk Eagle'],['🐐','The GOAT'],['🌟','Immortal MVP']] },
+    pets:[['🐿️','Bench Squirrel'],['🐇','Fast-Break Hare'],['🐆','Court Cheetah'],['🦅','Dunk Eagle'],[['🐐','The GOAT'],['🦍','Backboard Beast']],['🌟','Immortal MVP']] },
   soccer: { label:'Soccer', ball:'⚽', brand:'Kick',
-    pets:[['🐁','Pitch Mouse'],['🐕','Match Hound'],['🦊','Winger Fox'],['🦅','Striker Falcon'],['🦁','King of the Pitch'],['👑','Football God']],
+    pets:[['🐁','Pitch Mouse'],['🐕','Match Hound'],['🦊','Winger Fox'],['🦅','Striker Falcon'],[['🦁','King of the Pitch'],['🐂','Bicycle-Kick Bull']],['👑','Football God']],
     worldNames:['Five-a-Side City'],
     verbs:['Play a street kickabout','Host a friendly match','Score in zero-G'],
     biz:[
@@ -430,7 +430,7 @@ const SPORTS = {
     ],
     ups:{ u0:'Better Footballs', g0:'Sand Pitches' } },
   football: { label:'Football', ball:'🏈', brand:'Gridiron',
-    pets:[['🐹','Bench Hamster'],['🐗','Blitz Boar'],['🐅','Endzone Tiger'],['🦬','Gridiron Bison'],['🦅','Hail-Mary Eagle'],['🐲','Gridiron Titan']],
+    pets:[['🐹','Bench Hamster'],['🐗','Blitz Boar'],['🐅','Endzone Tiger'],['🦬','Gridiron Bison'],[['🦅','Hail-Mary Eagle'],['🦏','Blitz Rhino']],['🐲','Gridiron Titan']],
     worldNames:['Friday Lights City'],
     verbs:['Run a backyard scrimmage','Host an exhibition bowl','Throw a zero-G Hail Mary'],
     biz:[
@@ -440,7 +440,7 @@ const SPORTS = {
     ],
     ups:{ u0:'Better Footballs', g0:'Sand Gridirons' } },
   baseball: { label:'Baseball', ball:'⚾', brand:'Diamond',
-    pets:[['🐤','Rookie Chick'],['🐕','Outfield Dog'],['🦝','Dugout Raccoon'],['🦅','Home-Run Hawk'],['🐉','Grand-Slam Dragon'],['🌟','Cosmic Slugger']],
+    pets:[['🐤','Rookie Chick'],['🐕','Outfield Dog'],['🦝','Dugout Raccoon'],['🦅','Home-Run Hawk'],[['🦡','Base-Running Badger'],['🗿','Hard-Hitting Giant']],['🌟','Cosmic Slugger']],
     worldNames:['Sandlot City'],
     verbs:['Play a sandlot game','Host an exhibition series','Hit a zero-G homer'],
     biz:[
@@ -589,11 +589,16 @@ const RARITIES = [
   { key:'ultralegendary', label:'Ultra Legendary', color:'#35e6ff', rate:0.005, cash:5.00, ring:2.00, sell:20.0 },
 ];
 const rarityIdx = key => RARITIES.findIndex(r => r.key === key);
-function petTheme(ri){ const p = (SPORTS[sport] && SPORTS[sport].pets) || SPORTS.basketball.pets; return p[ri] || ['🐾','Pet']; }
+// a rarity slot may hold one pet [emoji,name] or several [[emoji,name],...]
+function petVariants(ri){ const p = (SPORTS[sport] && SPORTS[sport].pets) || SPORTS.basketball.pets; const e = p[ri] || ['🐾','Pet']; return Array.isArray(e[0]) ? e : [e]; }
+function variantCount(ri){ return petVariants(ri).length; }
+function petTheme(ri, vi = 0){ const v = petVariants(ri); return v[Math.min(vi, v.length - 1)] || ['🐾','Pet']; }
+// keys are 'rarity:variant:kind' (older saves: 'rarity:kind' → variant 0)
+function parsePetKey(k){ const p = k.split(':'); return p.length >= 3 ? { rk:p[0], vi:+p[1], kind:p[2] } : { rk:p[0], vi:0, kind:p[1] }; }
 function petCost(){ return Math.max(100, Math.ceil(worldRateRaw() * 30)); } // ~30s of current income
 function ownedBest(kind){ // best rarity index owned for a kind ('cash'|'rings'), or -1
   let best = -1;
-  for (const k in (S.pets || {})){ if (!S.pets[k]) continue; const [rk, ki] = k.split(':'); if (ki === kind){ const i = rarityIdx(rk); if (i > best) best = i; } }
+  for (const k in (S.pets || {})){ if (!S.pets[k]) continue; const p = parsePetKey(k); if (p.kind === kind){ const i = rarityIdx(p.rk); if (i > best) best = i; } }
   return best;
 }
 function petCashMult(){ const i = ownedBest('cash'); return i < 0 ? 1 : RARITIES[i].cash; }
@@ -604,12 +609,14 @@ function openPack(){
   const cost = petCost();
   if (W().cash < cost) return null;
   W().cash -= cost;
-  const rk = rollRarity(), kind = Math.random() < 0.5 ? 'cash' : 'rings';
-  const key = rk + ':' + kind;
+  const rk = rollRarity(), ri = rarityIdx(rk);
+  const vi = Math.floor(Math.random() * variantCount(ri));
+  const kind = Math.random() < 0.5 ? 'cash' : 'rings';
+  const key = rk + ':' + vi + ':' + kind;
   S.pets = S.pets || {};
   S.pets[key] = (S.pets[key] || 0) + 1;
   paint(); save();
-  return { rk, kind, key };
+  return { rk, vi, kind, key };
 }
 function sellValue(ri){ return Math.ceil(petCost() * RARITIES[ri].sell); } // scales with your economy
 function petSell(key, count){
@@ -1531,23 +1538,21 @@ function renderPets(){
   if (!S) return;
   renderPetsButton();
   const cashI = ownedBest('cash'), ringI = ownedBest('rings');
-  const cells = [];
-  for (let ri = RARITIES.length - 1; ri >= 0; ri--){
-    for (const kind of ['cash', 'rings']){
-      const key = RARITIES[ri].key + ':' + kind, count = (S.pets || {})[key] || 0;
-      if (!count) continue;
-      const [emoji, name] = petTheme(ri), R = RARITIES[ri];
-      const active = (kind === 'cash' && ri === cashI) || (kind === 'rings' && ri === ringI);
-      cells.push(`<div class="pet${active ? ' active' : ''}"><span class="pcount">×${count}</span>
-        <div class="pemoji">${emoji}</div><div class="prar" style="color:${R.color}">${R.label}</div>
-        <div class="pname">${esc(name)}</div><div class="pmult">${kind === 'cash' ? '💰' : '💍'} ×${kind === 'cash' ? R.cash : R.ring}</div>
-        <button class="ghost mini psell" data-sell="${key}">Sell ${$$(sellValue(ri))}</button></div>`);
-    }
-  }
+  const keys = Object.keys(S.pets || {}).filter(k => S.pets[k] > 0);
+  keys.sort((a, b) => { const pa = parsePetKey(a), pb = parsePetKey(b);
+    return (rarityIdx(pb.rk) - rarityIdx(pa.rk)) || pa.kind.localeCompare(pb.kind) || (pa.vi - pb.vi); });
+  const cells = keys.map(key => {
+    const { rk, vi, kind } = parsePetKey(key), ri = rarityIdx(rk), R = RARITIES[ri], [emoji, name] = petTheme(ri, vi);
+    const active = (kind === 'cash' && ri === cashI) || (kind === 'rings' && ri === ringI);
+    return `<div class="pet${active ? ' active' : ''}"><span class="pcount">×${S.pets[key]}</span>
+      <div class="pemoji">${emoji}</div><div class="prar" style="color:${R.color}">${R.label}</div>
+      <div class="pname">${esc(name)}</div><div class="pmult">${kind === 'cash' ? '💰' : '💍'} ×${kind === 'cash' ? R.cash : R.ring}</div>
+      <button class="ghost mini psell" data-sell="${key}">Sell ${$$(sellValue(ri))}</button></div>`;
+  });
   el('petgrid').innerHTML = cells.length ? cells.join('') : '<p class="dim">No pets yet — open a pack!</p>';
 }
 function revealPet(res){
-  const ri = rarityIdx(res.rk), R = RARITIES[ri], [emoji, name] = petTheme(ri);
+  const ri = rarityIdx(res.rk), R = RARITIES[ri], [emoji, name] = petTheme(ri, res.vi);
   const mult = res.kind === 'cash' ? R.cash : R.ring;
   const active = (res.kind === 'cash' ? ownedBest('cash') : ownedBest('rings')) === ri;
   const ov = document.createElement('div'); ov.className = 'overlay';
