@@ -57,6 +57,7 @@ const hash = s => crypto.createHash('sha256').update(String(s)).digest('hex');
 // effective owner passcode = in-game override if set, else the ADMIN_KEY env.
 // The original ADMIN_KEY always works too, as a recovery key you can't be locked out of.
 function currentAdminKey(){ return db.adminKey || ADMIN_KEY; }
+function ver(){ return VERSION + (db.verBump || 0); }   // deploy version + runtime bumps (e.g. passcode changes)
 const isOwner = req => { const h = req.headers['x-admin-key']; return !!h && (h === currentAdminKey() || (ADMIN_KEY && h === ADMIN_KEY)); };
 
 function auth(b){ // -> account or null
@@ -87,7 +88,7 @@ const server = http.createServer(async (req, res) => {
     try { return send(res, 200, fs.readFileSync('./index.html'), 'text/html; charset=utf-8'); }
     catch { return send(res, 404, { error: 'index.html missing' }); }
   }
-  if (url.pathname === '/api/ping') return send(res, 200, { ok: true, game: 'hardwood-tycoon', accounts: true, version: VERSION });
+  if (url.pathname === '/api/ping') return send(res, 200, { ok: true, game: 'hardwood-tycoon', accounts: true, version: ver() });
 
   // create an account (optionally seeded with an existing local save)
   if (url.pathname === '/api/signup' && req.method === 'POST'){
@@ -175,7 +176,7 @@ const server = http.createServer(async (req, res) => {
       const s = statsOf(a.save);
       return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, battleWins: s.battleWins, lastSeen: a.lastSeen };
     });
-    return send(res, 200, { rows, announcement: activeAnnouncement(), version: VERSION });
+    return send(res, 200, { rows, announcement: activeAnnouncement(), version: ver() });
   }
 
   // owner: every account in the game
@@ -247,7 +248,7 @@ const server = http.createServer(async (req, res) => {
     const b = await readBody(req);
     const nk = (typeof (b && b.newKey) === 'string' ? b.newKey : '').trim();
     if (nk.length < 3) return send(res, 400, { error: 'New passcode must be at least 3 characters.' });
-    db.adminKey = nk; persist();
+    db.adminKey = nk; db.verBump = (db.verBump || 0) + 1; persist();   // force everyone to reload
     return send(res, 200, { ok: true });
   }
 
