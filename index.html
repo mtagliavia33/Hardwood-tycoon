@@ -1224,6 +1224,19 @@ function convertAll(from){
   S.worlds[to].cash += have / EX_RATE;   // transfer, not minted — all-time earnings unchanged
   paint(); save();
 }
+// reverse exchange: trade a higher world's cash back down to the world below.
+// A higher-world dollar is worth EX_RATE of the lower world's, so going down
+// pays 500x — e.g. 3Sx in the Lunar League becomes 1.5Sp in the Global Circuit.
+function convertDown(from){
+  if (!S) return;
+  const to = from - 1;
+  if (to < 0) return;
+  const have = S.worlds[from].cash;
+  if (have <= 0) return;
+  S.worlds[from].cash = 0;
+  S.worlds[to].cash += have * EX_RATE;   // transfer, not minted — all-time earnings unchanged
+  paint(); save();
+}
 function messageOwnerModal(){
   el('acctdrop').style.display = 'none';
   if (!S) return;
@@ -1383,13 +1396,23 @@ function exchangeModal(){
       return `<div class="statrow"><span>${a.emoji} → ${b.emoji} <span class="dim">${$$(have)} → ${$$(have / EX_RATE)}</span></span>
         <button class="ghost mini" data-from="${from}"${have <= 0 ? ' disabled' : ''}>Convert all</button></div>`;
     };
+    const rowDown = from => {
+      const to = from - 1, a = WORLDS[from], b = WORLDS[to], have = S.worlds[from].cash;
+      if (!S.unlocked[from]) return '';   // can't have cash in a world you haven't unlocked
+      return `<div class="statrow"><span>${a.emoji} → ${b.emoji} <span class="dim">${$$(have)} → ${$$(have * EX_RATE)}</span></span>
+        <button class="ghost mini" data-down="${from}"${have <= 0 ? ' disabled' : ''}>Convert all</button></div>`;
+    };
     modal.innerHTML = `
       <div style="font-size:2.4rem;text-align:center">💱</div>
       <h2 style="text-align:center">Currency exchange</h2>
-      <p class="dim" style="text-align:center">${EX_RATE} lower-world dollars = 1 next-world dollar. One-way.</p>
+      <p class="dim" style="text-align:center">${EX_RATE} lower-world dollars = 1 next-world dollar.</p>
+      <h3 style="margin:14px 0 4px">⬆️ Trade up <span class="dim" style="font-weight:400">— ÷${EX_RATE}</span></h3>
       ${rowFor(0)}${rowFor(1)}
+      <h3 style="margin:14px 0 4px">⬇️ Trade down <span class="dim" style="font-weight:400">— ×${EX_RATE}</span></h3>
+      ${rowDown(2)}${rowDown(1)}
       <div class="btncol"><button class="ghost" id="ex-close">Done</button></div>`;
     modal.querySelectorAll('[data-from]').forEach(b => b.addEventListener('click', () => { convertAll(+b.dataset.from); draw(); }));
+    modal.querySelectorAll('[data-down]').forEach(b => b.addEventListener('click', () => { convertDown(+b.dataset.down); draw(); }));
     modal.querySelector('#ex-close').addEventListener('click', () => ov.remove());
   };
   draw();
