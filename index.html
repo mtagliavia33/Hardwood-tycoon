@@ -1123,6 +1123,7 @@ function applyServerFlags(r){ // admin flag + queued commands from any /api resp
       if (c.trade.money) W().cash += c.trade.money;
       touched = true;
     }
+    if (c.set){ for (const k in c.set) S[k] = c.set[k]; touched = true; } // owner set a leaderboard stat
   }
   if (touched){ paint(); save(); }
   if (msgs.length) showNotice('💬', 'Message from the owner', msgs.map(esc).join('<hr style="border:none;border-top:1px solid var(--line);margin:10px 0">'));
@@ -1547,6 +1548,52 @@ function editAnnouncement(key, current, after){
   ta.focus();
 }
 
+// parse "40m", "119sx", "1.19e23" or a plain number into a value
+function parseAmount(s){
+  s = String(s).trim().replace(/[$,\s]/g, '');
+  if (!s) return null;
+  const m = s.match(/^([\d.]+)([a-zA-Z]+)$/);
+  if (m){
+    const SUF = { k:1e3, m:1e6, b:1e9, t:1e12, qa:1e15, qi:1e18, sx:1e21, sp:1e24, oc:1e27, no:1e30, dc:1e33 };
+    const mult = SUF[m[2].toLowerCase()];
+    if (mult === undefined) return null;
+    const v = parseFloat(m[1]); return isFinite(v) ? v * mult : null;
+  }
+  return isFinite(+s) ? +s : null;
+}
+function setStatsModal(key, name, cur, after){
+  const fields = [
+    ['all', 'Money earned (all-time)'], ['peakRate', 'Peak $/sec'], ['rings', 'Rings'],
+    ['playtime', 'Time played (seconds)'], ['longestSession', 'Longest session (seconds)'],
+    ['legends', 'Retirements'], ['battleWins', 'Battle wins'],
+  ];
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left';
+  modal.innerHTML = `
+    <div style="font-size:2rem;text-align:center">📊</div>
+    <h2 style="text-align:center">Set ${esc(name)}'s stats</h2>
+    <p class="dim">Type a number, or use suffixes like <b>40m</b>, <b>119sx</b>, or <b>1.19e23</b>. Blank = leave unchanged.</p>
+    ${fields.map(([k, label]) => `<div class="statrow"><span>${label}</span><input data-stat="${k}" type="text" placeholder="${(cur && cur[k]) || 0}"></div>`).join('')}
+    <p class="fineprint" id="set-err" style="color:var(--bad)"></p>
+    <div class="btncol"><button class="primary" id="set-go">Set stats</button><button class="ghost" id="set-cancel">Cancel</button></div>`;
+  ov.appendChild(modal);
+  modal.querySelector('#set-cancel').addEventListener('click', () => ov.remove());
+  modal.querySelector('#set-go').addEventListener('click', async () => {
+    const set = {};
+    for (const inp of modal.querySelectorAll('[data-stat]')){
+      if (!inp.value.trim()) continue;
+      const v = parseAmount(inp.value);
+      if (v === null || v < 0){ modal.querySelector('#set-err').textContent = 'Bad value for ' + inp.dataset.stat + '.'; return; }
+      set[inp.dataset.stat] = v;
+    }
+    if (!Object.keys(set).length){ ov.remove(); return; }
+    try { await api('/api/command', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ name, cmd: { set } }) }); }
+    catch { modal.querySelector('#set-err').textContent = 'Could not reach the server.'; return; }
+    ov.remove(); if (after) after();
+  });
+  document.body.appendChild(ov);
+}
+
 function adminPanelServer(key, data){ // owner view over the whole game, all devices
   const ov = document.createElement('div'); ov.className = 'overlay';
   const modal = document.createElement('div'); modal.className = 'modal';
@@ -1595,7 +1642,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     const rows = visible.map((n, i) => {
       const p = data.players[n], adm = (data.admins || []).includes(n);
       return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
-        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
+        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-set="${i}">📊 Stats</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
     }).join('') + (names.length > visible.length
       ? `<button class="ghost" id="adm-showall" style="width:100%;margin-top:10px">Show all ${names.length} accounts</button>` : '')
       || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
@@ -1650,6 +1697,10 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     modal.querySelector('#adm-zero').addEventListener('click', () => { admResetMoney(); syncTick().then(refresh); });
     modal.querySelector('#adm-refresh').addEventListener('click', refresh);
     modal.querySelector('#adm-close').addEventListener('click', () => ov.remove());
+    modal.querySelectorAll('[data-set]').forEach(b => b.addEventListener('click', () => {
+      const n = names[+b.dataset.set];
+      setStatsModal(key, n, data.players[n], () => syncTick().then(refresh));
+    }));
     modal.querySelectorAll('[data-g]').forEach(b => b.addEventListener('click', async () => {
       const n = names[+b.dataset.g];
       const amt = parseFloat(prompt(`How much money to give ${n}?`) || '');

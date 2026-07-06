@@ -221,6 +221,16 @@ const server = http.createServer(async (req, res) => {
     if (typeof b.cmd.message === 'string' && b.cmd.message.trim()) cmd.message = b.cmd.message.trim().slice(0, 500);
     if (typeof b.cmd.admin === 'boolean') db.admins = b.cmd.admin
       ? [...new Set([...db.admins, name])] : db.admins.filter(x => x !== name);
+    // set leaderboard-rankable stats to chosen values
+    if (b.cmd.set && typeof b.cmd.set === 'object'){
+      cmd.set = {};
+      for (const k of ['all', 'peakRate', 'rings', 'playtime', 'longestSession', 'legends', 'battleWins']){
+        if (k in b.cmd.set){ const v = num(b.cmd.set[k]); if (v >= 0) cmd.set[k] = v; }
+      }
+      if (!Object.keys(cmd.set).length) delete cmd.set;
+      else if (db.accounts[name].save && Array.isArray(db.accounts[name].save.worlds))
+        for (const k in cmd.set) db.accounts[name].save[k] = cmd.set[k];   // mirror so the board updates now
+    }
     // reset wipes the stored save now AND queues it for a live session, but
     // keeps the player's pet collection (pets are permanent).
     if (cmd.reset){ const old = db.accounts[name].save; db.accounts[name].save = (old && old.pets) ? { pets: old.pets } : null; }
