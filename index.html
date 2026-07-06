@@ -1673,16 +1673,7 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
       ${inboxHtml()}
       <h3 style="margin-top:18px">All accounts (${names.length})</h3>${rows}
       <p class="dim">Changes reach other devices within ~30 seconds while their game is open.</p>
-      <div class="btncol"><button class="ghost" id="adm-passcode">🔑 Change owner passcode</button><button class="ghost" id="adm-refresh">Refresh list</button><button class="ghost" id="adm-close">Close</button></div>`;
-    modal.querySelector('#adm-passcode').addEventListener('click', async () => {
-      const nk = (prompt('New owner passcode (at least 3 characters):') || '').trim();
-      if (nk.length < 3){ if (nk) alert('Too short — at least 3 characters.'); return; }
-      try {
-        await api('/api/admin/passcode', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ newKey: nk }) });
-        key = nk;   // keep this open session working with the new passcode
-        alert('Passcode changed. Use the new passcode next time you open the panel.');
-      } catch { alert('Could not change the passcode — try again.'); }
-    });
+      <div class="btncol"><button class="ghost" id="adm-refresh">Refresh list</button><button class="ghost" id="adm-close">Close</button></div>`;
     const sa = modal.querySelector('#adm-showall');
     if (sa) sa.addEventListener('click', () => { showAll = true; render(); });
     const ia = modal.querySelector('#inbox-all');

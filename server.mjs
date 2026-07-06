@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
-const VERSION = 2;   // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 3;   // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
