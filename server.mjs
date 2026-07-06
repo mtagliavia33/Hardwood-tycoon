@@ -53,7 +53,10 @@ const readBody = req => new Promise(resolve => {
 const cleanName = v => (typeof v === 'string' ? v : '').trim().slice(0, 20);
 const num = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
 const hash = s => crypto.createHash('sha256').update(String(s)).digest('hex');
-const isOwner = req => ADMIN_KEY && req.headers['x-admin-key'] === ADMIN_KEY;
+// effective owner passcode = in-game override if set, else the ADMIN_KEY env.
+// The original ADMIN_KEY always works too, as a recovery key you can't be locked out of.
+function currentAdminKey(){ return db.adminKey || ADMIN_KEY; }
+const isOwner = req => { const h = req.headers['x-admin-key']; return !!h && (h === currentAdminKey() || (ADMIN_KEY && h === ADMIN_KEY)); };
 
 function auth(b){ // -> account or null
   const name = cleanName(b && b.name);
@@ -149,14 +152,14 @@ const server = http.createServer(async (req, res) => {
 
   // owner: read the inbox
   if (url.pathname === '/api/inbox' && req.method === 'GET'){
-    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     return send(res, 200, { messages: db.messages.slice().reverse() }); // newest first
   }
 
   // owner: mark all read, or clear the inbox
   if (url.pathname === '/api/inbox' && req.method === 'POST'){
-    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     const b = await readBody(req);
     if (b && b.action === 'clear') db.messages = [];
@@ -176,7 +179,7 @@ const server = http.createServer(async (req, res) => {
 
   // owner: every account in the game
   if (url.pathname === '/api/players' && req.method === 'GET'){
-    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     const players = {};
     for (const [name, a] of Object.entries(db.accounts)) players[name] = {
@@ -188,7 +191,7 @@ const server = http.createServer(async (req, res) => {
 
   // owner: set or clear the global announcement everyone sees on login
   if (url.pathname === '/api/announce' && req.method === 'POST'){
-    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     const b = await readBody(req);
     const text = (typeof (b && b.text) === 'string' ? b.text : '').trim().slice(0, 300);
@@ -200,7 +203,7 @@ const server = http.createServer(async (req, res) => {
 
   // owner: give money / reset / grant admin
   if (url.pathname === '/api/command' && req.method === 'POST'){
-    if (!ADMIN_KEY) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
     const b = await readBody(req);
     const name = cleanName(b && b.name);
@@ -223,6 +226,17 @@ const server = http.createServer(async (req, res) => {
     if (cmd.reset){ const old = db.accounts[name].save; db.accounts[name].save = (old && old.pets) ? { pets: old.pets } : null; }
     if (Object.keys(cmd).length) (db.commands[name] = db.commands[name] || []).push(cmd);
     persist();
+    return send(res, 200, { ok: true });
+  }
+
+  // owner: change the panel passcode (requires the current passcode)
+  if (url.pathname === '/api/admin/passcode' && req.method === 'POST'){
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    const b = await readBody(req);
+    const nk = (typeof (b && b.newKey) === 'string' ? b.newKey : '').trim();
+    if (nk.length < 3) return send(res, 400, { error: 'New passcode must be at least 3 characters.' });
+    db.adminKey = nk; persist();
     return send(res, 200, { ok: true });
   }
 
