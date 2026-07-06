@@ -61,11 +61,11 @@ function auth(b){ // -> account or null
   return (a && typeof b.pin === 'string' && a.pin === hash(b.pin)) ? { name, a } : null;
 }
 function statsOf(save){
-  if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0 };
+  if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0, battleWins: 0 };
   return {
     cash: save.worlds.reduce((t, w) => t + num(w && w.cash), 0),
     all: num(save.all), playtime: num(save.playtime), peakRate: num(save.peakRate),
-    rings: num(save.rings), prestiges: num(save.prestiges), longestSession: num(save.longestSession), legends: num(save.legends),
+    rings: num(save.rings), prestiges: num(save.prestiges), longestSession: num(save.longestSession), legends: num(save.legends), battleWins: num(save.battleWins),
   };
 }
 function takeCommands(name){
@@ -169,7 +169,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/leaderboard' && req.method === 'GET'){
     const rows = Object.entries(db.accounts).map(([name, a]) => {
       const s = statsOf(a.save);
-      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, lastSeen: a.lastSeen };
+      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, battleWins: s.battleWins, lastSeen: a.lastSeen };
     });
     return send(res, 200, { rows, announcement: activeAnnouncement() });
   }

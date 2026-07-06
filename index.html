@@ -269,6 +269,7 @@ main{padding:14px 14px 30px}
       <div class="panel"><h3>💍 Most rings</h3><div id="lb-rings"></div></div>
       <div class="panel"><h3>⏳ Longest single session</h3><div id="lb-session"></div></div>
       <div class="panel"><h3>🏅 Most retirements</h3><div id="lb-legends"></div></div>
+      <div class="panel"><h3>⚔️ Most battle wins</h3><div id="lb-wins"></div></div>
     </section>
 
     <section id="tab-pets" style="display:none">
@@ -517,14 +518,14 @@ function freshState(){
   return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
            playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0, pets:{},
-           goat:false, goatSeen:false, legends:0 };
+           goat:false, goatSeen:false, legends:0, battleWins:0, battleLosses:0 };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -964,19 +965,21 @@ function checkPodium(){
   } else { save(); }
 }
 function collectOffline(){
-  let daily = 0;
+  let daily = 0, battleBonus = 0;
   const today = dayStamp();
   if (S.lastDaily !== today){
     daily = totalCash() * 0.20;   // 20% of what you have on hand
+    if ((S.battleWins || 0) > (S.battleLosses || 0)) battleBonus = petCost() * 5; // winning battle record
     S.lastDaily = today;
     if (daily > 0) W().cash += daily;
+    if (battleBonus > 0) W().cash += battleBonus;
   }
   const away = Math.min(OFFLINE_CAP, (Date.now() - (S.last || Date.now())) / 1000);
   const gains = away > 60 ? WORLDS.map((_, i) => S.unlocked[i] ? worldRate(i) * away * OFFLINE_RATE : 0) : [];
   const gotOffline = gains.some(g => g > 0);
   if (gotOffline) gains.forEach((g, i) => { if (g > 0) earn(g, i); });
 
-  if (!daily && !gotOffline){ save(); return; }
+  if (!daily && !gotOffline && !battleBonus){ save(); return; }
 
   let html = '';
   if (daily > 0){
@@ -984,6 +987,11 @@ function collectOffline(){
       <h2>Daily login bonus</h2>
       <p class="dim">Welcome back! Here's <b>20%</b> of your cash for logging in today.</p>
       <div style="font-size:1.4rem;font-weight:800;color:var(--gold)">+${$$(daily)}</div>`;
+  }
+  if (battleBonus > 0){
+    html += `<h3 style="margin-top:14px">🏆 Winning record bonus</h3>
+      <p class="dim">Your battle record is winning (${S.battleWins||0}W–${S.battleLosses||0}L) — here's a daily reward!</p>
+      <div style="font-size:1.3rem;font-weight:800;color:var(--good)">+${$$(battleBonus)}</div>`;
   }
   if (gotOffline){
     const lines = gains.map((g, i) => g > 0 ? `${WORLDS[i].emoji} ${$$(g)}` : null).filter(Boolean).join(' &nbsp;·&nbsp; ');
@@ -1672,21 +1680,21 @@ function fmtTime(sec){
 function leaderRows(){
   if (serverOn && lbOnline){ // global boards from the server
     const rows = lbOnline.map(r => ({ name: r.name, you: player === r.name,
-      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0, session: r.longestSession || 0, legends: r.legends || 0 }));
+      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0, session: r.longestSession || 0, legends: r.legends || 0, wins: r.battleWins || 0 }));
     const mine = rows.find(r => r.you);
-    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; mine.session = S.longestSession; mine.legends = S.legends || 0; } // live numbers for me
-    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings, session: S.longestSession, legends: S.legends || 0 });
+    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; mine.session = S.longestSession; mine.legends = S.legends || 0; mine.wins = S.battleWins || 0; } // live numbers for me
+    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings, session: S.longestSession, legends: S.legends || 0, wins: S.battleWins || 0 });
     return rows;
   }
   const rows = [];
   for (const n of accounts()){
-    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0 }); continue; }
+    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0, wins:S.battleWins||0 }); continue; }
     try {
       const s = JSON.parse(localStorage.getItem(acctKey(n)));
-      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0, session:s.longestSession || 0, legends:s.legends || 0 });
+      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0, session:s.longestSession || 0, legends:s.legends || 0, wins:s.battleWins || 0 });
     } catch {}
   }
-  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0 });
+  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0, wins:S.battleWins||0 });
   return rows;
 }
 function renderBoard(id, rows, val){
@@ -1754,7 +1762,8 @@ function battleModal(){
     modal.innerHTML = `
       <div style="font-size:2.2rem;text-align:center">⚔️</div>
       <h2 style="text-align:center">Pet Battle Arena</h2>
-      <p class="dim">Pick a pet to fight a rival. Entry: <b>${$$(entry())}</b>. Win and you pocket more than you paid!</p>
+      <p class="dim" style="text-align:center">Record: <b style="color:var(--good)">${S.battleWins||0}W</b> – <b style="color:var(--bad)">${S.battleLosses||0}L</b>${(S.battleWins||0)>(S.battleLosses||0)?' 🏆':''}</p>
+      <p class="dim">Pick a pet to fight a rival. Entry: <b>${$$(entry())}</b>. Win and you pocket more than you paid! Keep a winning record for a daily cash bonus.</p>
       ${keys.map(k => { const { rk, vi } = parsePetKey(k), ri = rarityIdx(rk), R = RARITIES[ri], [emoji, name] = petTheme(ri, vi);
         return `<button class="ghost" style="width:100%;text-align:left;margin-top:6px;border-color:${R.color}" data-fight="${k}">${emoji} ${esc(name)} <span class="dim">— ${R.label}</span></button>`; }).join('')}
       <div class="btncol"><button class="ghost" id="bt-close">Close</button></div>`;
@@ -1788,8 +1797,9 @@ function battleModal(){
   }
   function endFight(win){
     st.over = true; st.win = win;
-    if (win){ const reward = Math.ceil(st.fee * (2 + st.ri * 0.4)); W().cash += reward; st.reward = reward; st.log.push(`🏆 Victory! You won ${$$(reward)}!`); save(); paint(); }
-    else st.log.push('💀 Your pet fainted — you lost the entry fee.');
+    if (win){ S.battleWins = (S.battleWins || 0) + 1; const reward = Math.ceil(st.fee * (2 + st.ri * 0.4)); W().cash += reward; st.reward = reward; st.log.push(`🏆 Victory! You won ${$$(reward)}!`); }
+    else { S.battleLosses = (S.battleLosses || 0) + 1; st.log.push('💀 Your pet fainted — you lost the entry fee.'); }
+    save(); paint();
   }
   function fightView(){
     const bar = (v, max, c) => `<div style="background:#0006;border-radius:6px;height:10px;overflow:hidden;margin-top:2px"><div style="width:${Math.max(0, v / max * 100)}%;height:100%;background:${c};transition:width .2s"></div></div>`;
@@ -1826,6 +1836,7 @@ function renderLeaders(){
   renderBoard('lb-rings', rows.slice().sort((a, b) => b.rings - a.rings).slice(0, TOP), r => `${(r.rings || 0).toLocaleString()} 💍`);
   renderBoard('lb-session', rows.slice().sort((a, b) => b.session - a.session).slice(0, TOP), r => fmtTime(r.session));
   renderBoard('lb-legends', rows.slice().sort((a, b) => b.legends - a.legends).slice(0, TOP), r => `${(r.legends || 0).toLocaleString()} 🏅`);
+  renderBoard('lb-wins', rows.slice().sort((a, b) => b.wins - a.wins).slice(0, TOP), r => `${(r.wins || 0).toLocaleString()} ⚔️`);
 }
 
 function createAccount(name){
