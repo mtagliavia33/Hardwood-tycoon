@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
+const VERSION = 2;   // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
@@ -86,7 +87,7 @@ const server = http.createServer(async (req, res) => {
     try { return send(res, 200, fs.readFileSync('./index.html'), 'text/html; charset=utf-8'); }
     catch { return send(res, 404, { error: 'index.html missing' }); }
   }
-  if (url.pathname === '/api/ping') return send(res, 200, { ok: true, game: 'hardwood-tycoon', accounts: true });
+  if (url.pathname === '/api/ping') return send(res, 200, { ok: true, game: 'hardwood-tycoon', accounts: true, version: VERSION });
 
   // create an account (optionally seeded with an existing local save)
   if (url.pathname === '/api/signup' && req.method === 'POST'){
@@ -174,7 +175,7 @@ const server = http.createServer(async (req, res) => {
       const s = statsOf(a.save);
       return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, battleWins: s.battleWins, lastSeen: a.lastSeen };
     });
-    return send(res, 200, { rows, announcement: activeAnnouncement() });
+    return send(res, 200, { rows, announcement: activeAnnouncement(), version: VERSION });
   }
 
   // owner: every account in the game

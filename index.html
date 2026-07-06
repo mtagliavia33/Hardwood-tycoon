@@ -1052,11 +1052,22 @@ async function checkServer(){
   for (const c of candidates){
     try {
       const r = await fetch(c + '/api/ping');
-      if (r.ok && (await r.json()).ok === true){ apiBase = c; serverOn = true; return true; }
+      if (r.ok){ const j = await r.json(); if (j.ok === true){ apiBase = c; serverOn = true; if (loadedVersion === null && j.version != null) loadedVersion = j.version; return true; } }
     } catch {}
   }
   apiBase = null; serverOn = false;
   return false;
+}
+let loadedVersion = null, reloading = false;
+function forceReload(){
+  if (reloading) return; reloading = true;
+  const ov = document.createElement('div'); ov.className = 'overlay'; ov.style.zIndex = 99999;
+  ov.innerHTML = `<div class="modal"><div style="font-size:2.6rem">🔄</div><h2>New version!</h2>
+    <p class="dim">The game was just updated. Reload to get the changes — you can't keep playing the old version.</p>
+    <div class="btncol"><button class="primary" id="rl-now">Reload now</button></div></div>`;
+  ov.querySelector('#rl-now').addEventListener('click', () => location.reload());
+  document.body.appendChild(ov);
+  setTimeout(() => location.reload(), 4000);
 }
 function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 
@@ -1141,6 +1152,11 @@ async function syncTick(){ // push my save to the server, pick up commands
     try {
       const lb = await api('/api/leaderboard');
       lbOnline = lb.rows;
+      if (loadedVersion !== null && lb.version != null && lb.version !== loadedVersion){
+        if (S && onlineCreds){ try { await api('/api/save', { method: 'POST', body: JSON.stringify({ ...onlineCreds, save: S }) }); } catch {} } // save progress first
+        else if (S) save();
+        forceReload(); return;
+      }
       manualAnnounce = lb.announcement || null;
       updateTicker();
       checkPodium();                   // daily top-3 reward once the board is loaded
@@ -2187,7 +2203,7 @@ setInterval(() => {
   const now = performance.now();
   const dt = Math.min(2, (now - lastTick) / 1000);
   lastTick = now;
-  if (!S) return;
+  if (!S || reloading) return;
   S.playtime += dt;
   sessionSeconds += dt;                                   // this continuous session
   if (sessionSeconds > (S.longestSession || 0)) S.longestSession = sessionSeconds;
