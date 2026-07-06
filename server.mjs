@@ -8,7 +8,10 @@ import crypto from 'node:crypto';
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
-const VERSION = 6;   // bump on every deploy — clients that loaded an older version are forced to reload
+// Only these accounts may ever open the admin panel — even with the right
+// passcode. They are also exempt from being blocked. Matched exactly.
+const OWNER_ACCOUNTS = ['owner', 'owners alt'];
+const VERSION = 7;   // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
@@ -25,6 +28,7 @@ function activeAnnouncement(){
   return a;
 }
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch {}
+db.blocked = (db.blocked || []).filter(n => !OWNER_ACCOUNTS.includes(n)); // owner accounts are never blocked
 
 let saveTimer = null;
 function persist(){
@@ -59,6 +63,17 @@ const hash = s => crypto.createHash('sha256').update(String(s)).digest('hex');
 function currentAdminKey(){ return db.adminKey || ADMIN_KEY; }
 function ver(){ return VERSION + (db.verBump || 0); }   // deploy version + runtime bumps (e.g. passcode changes)
 const isOwner = req => { const h = req.headers['x-admin-key']; return !!h && (h === currentAdminKey() || (ADMIN_KEY && h === ADMIN_KEY)); };
+// The admin panel also requires the caller to be signed in as one of the
+// OWNER_ACCOUNTS, proven by that account's PIN — so knowing the passcode is
+// not enough. Credentials come in as headers (URI-encoded to stay ASCII-safe).
+function ownerAcct(req){
+  let name = req.headers['x-acct'] || '', pin = req.headers['x-acct-pin'] || '';
+  try { name = decodeURIComponent(name); pin = decodeURIComponent(pin); } catch { return null; }
+  name = cleanName(name);
+  if (!OWNER_ACCOUNTS.includes(name)) return null;
+  const a = db.accounts[name];
+  return (a && typeof pin === 'string' && a.pin === hash(pin)) ? name : null;
+}
 
 function auth(b){ // -> account or null
   const name = cleanName(b && b.name);
@@ -156,6 +171,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/inbox' && req.method === 'GET'){
     if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
     return send(res, 200, { messages: db.messages.slice().reverse() }); // newest first
   }
 
@@ -163,6 +179,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/inbox' && req.method === 'POST'){
     if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
     const b = await readBody(req);
     if (b && b.action === 'clear') db.messages = [];
     else db.messages.forEach(m => { m.read = true; });
@@ -183,6 +200,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/players' && req.method === 'GET'){
     if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
     const players = {};
     for (const [name, a] of Object.entries(db.accounts)) players[name] = {
       ...statsOf(a.save), lastSeen: a.lastSeen,
@@ -195,6 +213,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/announce' && req.method === 'POST'){
     if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
     const b = await readBody(req);
     const text = (typeof (b && b.text) === 'string' ? b.text : '').trim().slice(0, 300);
     const until = num(b && b.until);   // absolute ms timestamp; 0 = until manually cleared
@@ -207,6 +226,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/command' && req.method === 'POST'){
     if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
     const b = await readBody(req);
     const name = cleanName(b && b.name);
     if (!name || !db.accounts[name] || !b.cmd || typeof b.cmd !== 'object') return send(res, 400, { error: 'unknown account or empty cmd' });
@@ -223,7 +243,7 @@ const server = http.createServer(async (req, res) => {
     if (typeof b.cmd.message === 'string' && b.cmd.message.trim()) cmd.message = b.cmd.message.trim().slice(0, 500);
     if (typeof b.cmd.admin === 'boolean') db.admins = b.cmd.admin
       ? [...new Set([...db.admins, name])] : db.admins.filter(x => x !== name);
-    if (typeof b.cmd.block === 'boolean'){
+    if (typeof b.cmd.block === 'boolean' && !OWNER_ACCOUNTS.includes(name)){ // owner accounts can never be blocked
       db.blocked = b.cmd.block ? [...new Set([...(db.blocked || []), name])] : (db.blocked || []).filter(x => x !== name);
       if (b.cmd.block) db.admins = db.admins.filter(x => x !== name); // blocking also strips admin
     }
@@ -249,6 +269,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/admin/passcode' && req.method === 'POST'){
     if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
     if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
     const b = await readBody(req);
     const nk = (typeof (b && b.newKey) === 'string' ? b.newKey : '').trim();
     if (nk.length < 3) return send(res, 400, { error: 'New passcode must be at least 3 characters.' });

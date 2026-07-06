@@ -1037,6 +1037,15 @@ const ADMIN_KEY = 'hardwoodTycoonAdmin';
 // When the game is served by server.mjs, the same origin is used automatically.
 // For the GitHub Pages copy, set SYNC_URL to the Railway URL so its players sync too.
 const SYNC_URL = 'https://hardwood-tycoon.up.railway.app';
+// Only these accounts may open the admin panel — must match the server's list.
+const OWNER_ACCOUNTS = ['owner', 'owners alt'];
+// Headers for owner-only admin calls: the passcode plus proof we're signed in
+// as an owner account (URI-encoded to stay ASCII-safe). The server re-checks both.
+function admHdr(k){
+  const h = { 'x-admin-key': k };
+  if (onlineCreds){ h['x-acct'] = encodeURIComponent(onlineCreds.name); h['x-acct-pin'] = encodeURIComponent(onlineCreds.pin); }
+  return h;
+}
 let serverOn = false;
 let apiBase = null; // resolved by checkServer: same origin when served by server.mjs, else SYNC_URL
 async function api(path, opts = {}){
@@ -1432,10 +1441,13 @@ async function openAdmin(){
   // offline/local fallback — otherwise anyone whose game couldn't reach the
   // server could just set up their own passcode and get in.
   if (!serverOn){ alert('The admin panel needs an internet connection to the server. Try again in a moment.'); return; }
+  if (!onlineCreds || !OWNER_ACCOUNTS.includes(onlineCreds.name)){
+    alert('Only the owner account can open the admin panel.'); return;
+  }
   const p = prompt('Owner passcode:');
   if (p === null || !p.trim()) return;
   try {
-    const data = await api('/api/players', { headers: { 'x-admin-key': p } });
+    const data = await api('/api/players', { headers: admHdr(p) });
     adminPanelServer(p, data);
   } catch (e) {
     alert(e.status === 401 ? 'Wrong passcode.' : e.status === 503 ? 'The server has no ADMIN_KEY set yet.' : 'Could not reach the server.');
@@ -1530,7 +1542,7 @@ function editAnnouncement(key, current, after){
   const send = async until => {
     const text = ta.value.trim();
     if (!text) return err('Type the announcement first.');
-    try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text, until }) }); }
+    try { await api('/api/announce', { method: 'POST', headers: admHdr(key), body: JSON.stringify({ text, until }) }); }
     catch { return err('Could not reach the server.'); }
     ov.remove(); after && after();
   };
@@ -1585,7 +1597,7 @@ function setStatsModal(key, name, cur, after){
       set[inp.dataset.stat] = v;
     }
     if (!Object.keys(set).length){ ov.remove(); return; }
-    try { await api('/api/command', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ name, cmd: { set } }) }); }
+    try { await api('/api/command', { method: 'POST', headers: admHdr(key), body: JSON.stringify({ name, cmd: { set } }) }); }
     catch { modal.querySelector('#set-err').textContent = 'Could not reach the server.'; return; }
     ov.remove(); if (after) after();
   });
@@ -1597,11 +1609,11 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
   const modal = document.createElement('div'); modal.className = 'modal';
   modal.style.maxWidth = '520px'; modal.style.textAlign = 'left';
   ov.appendChild(modal);
-  const post = (name, cmd) => api('/api/command', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ name, cmd }) });
+  const post = (name, cmd) => api('/api/command', { method: 'POST', headers: admHdr(key), body: JSON.stringify({ name, cmd }) });
   let inbox = [];
   const refresh = async () => {
-    try { data = await api('/api/players', { headers: { 'x-admin-key': key } }); } catch {}
-    try { inbox = (await api('/api/inbox', { headers: { 'x-admin-key': key } })).messages || []; } catch {}
+    try { data = await api('/api/players', { headers: admHdr(key) }); } catch {}
+    try { inbox = (await api('/api/inbox', { headers: admHdr(key) })).messages || []; } catch {}
     render();
   };
   let showAll = false, showInbox = false;
@@ -1661,18 +1673,18 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     const ia = modal.querySelector('#inbox-all');
     if (ia) ia.addEventListener('click', () => { showInbox = true; render(); });
     const ir = modal.querySelector('#inbox-read');
-    if (ir) ir.addEventListener('click', async () => { try { await api('/api/inbox', { method: 'POST', headers: { 'x-admin-key': key }, body: '{}' }); } catch {} refresh(); });
+    if (ir) ir.addEventListener('click', async () => { try { await api('/api/inbox', { method: 'POST', headers: admHdr(key), body: '{}' }); } catch {} refresh(); });
     const ic = modal.querySelector('#inbox-clear');
     if (ic) ic.addEventListener('click', async () => {
       if (!confirm('Clear all messages from the inbox? This cannot be undone.')) return;
-      try { await api('/api/inbox', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ action: 'clear' }) }); } catch {}
+      try { await api('/api/inbox', { method: 'POST', headers: admHdr(key), body: JSON.stringify({ action: 'clear' }) }); } catch {}
       refresh();
     });
     const as = modal.querySelector('#ann-set');
     if (as) as.addEventListener('click', () => editAnnouncement(key, data.announcement, refresh));
     const ac = modal.querySelector('#ann-clear');
     if (ac) ac.addEventListener('click', async () => {
-      try { await api('/api/announce', { method: 'POST', headers: { 'x-admin-key': key }, body: JSON.stringify({ text: '' }) }); } catch {}
+      try { await api('/api/announce', { method: 'POST', headers: admHdr(key), body: JSON.stringify({ text: '' }) }); } catch {}
       refresh();
     });
     modal.querySelectorAll('[data-mreply]').forEach(b => b.addEventListener('click', async () => {
