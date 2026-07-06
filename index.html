@@ -1073,7 +1073,7 @@ function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 
 // persistent scrolling ticker: always shows the 4x-boost schedule, plus the
 // owner's announcement (if any) in front of it.
-let manualAnnounce = null, tickerText = null, myTrades = { incoming: [], outgoing: [] };
+let manualAnnounce = null, tickerText = null, myTrades = { incoming: [], outgoing: [] }, iAmBlocked = false;
 function boostActive(){ const d = new Date().getDay(); return d === 0 || d === 3; } // Sun & Wed
 function boostMult(){ return boostActive() ? 4 : 1; }
 const GOAT_RINGS = 15000000;                                   // GOAT status milestone
@@ -1136,6 +1136,7 @@ function applyServerFlags(r){ // admin flag + queued commands from any /api resp
     }
     if (c.set){ for (const k in c.set) S[k] = c.set[k]; touched = true; } // owner set a leaderboard stat
   }
+  if (typeof r.blocked === 'boolean') iAmBlocked = r.blocked;
   if (touched){ paint(); save(); }
   if (msgs.length) showNotice('💬', 'Message from the owner', msgs.map(esc).join('<hr style="border:none;border-top:1px solid var(--line);margin:10px 0">'));
 }
@@ -1424,9 +1425,9 @@ function admResetMoney(){
 async function openAdmin(){
   el('acctdrop').style.display = 'none';
   if (!S) return;
+  if (iAmBlocked){ alert('You have been blocked from the admin panel.'); return; }
   await checkServer();
-  if (serverOn){ // server mode: the ADMIN_KEY on the server is the owner passcode
-    if (isAdmin()){ adminPanel(false); return; }
+  if (serverOn){ // server mode: the ADMIN_KEY on the server is the owner passcode — only the owner can open the panel
     const p = prompt('Owner passcode:');
     if (p === null || !p.trim()) return;
     try {
@@ -1447,7 +1448,6 @@ async function openAdmin(){
     adminPanel(true);
     return;
   }
-  if (isAdmin()){ adminPanel(false); return; }
   const p = prompt('Owner passcode:');
   if (p === null) return;
   if (pinHash(p) === d.ownerHash) adminPanel(true);
@@ -1656,9 +1656,9 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     const names = Object.keys(data.players || {}).sort((a, b) => (data.players[b].lastSeen || 0) - (data.players[a].lastSeen || 0));
     const visible = showAll ? names : names.slice(0, 5);
     const rows = visible.map((n, i) => {
-      const p = data.players[n], adm = (data.admins || []).includes(n);
-      return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
-        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-set="${i}">📊 Stats</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
+      const p = data.players[n], adm = (data.admins || []).includes(n), blk = (data.blocked || []).includes(n);
+      return `<div class="statrow"><span>${esc(n)}${adm ? ' <span style="color:var(--gold)">★</span>' : ''}${blk ? ' <span style="color:var(--bad)">⛔</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
+        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-set="${i}">📊 Stats</button><button class="ghost mini" data-a="${i}">${adm ? 'Unadmin' : 'Admin'}</button><button class="ghost mini" data-blk="${i}"${blk ? '' : ' style="border-color:var(--bad);color:var(--bad)"'}>${blk ? 'Unblock' : 'Block admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
     }).join('') + (names.length > visible.length
       ? `<button class="ghost" id="adm-showall" style="width:100%;margin-top:10px">Show all ${names.length} accounts</button>` : '')
       || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
@@ -1718,6 +1718,11 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     modal.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', async () => {
       const n = names[+b.dataset.a];
       try { await post(n, { admin: !(data.admins || []).includes(n) }); await syncTick(); } catch { alert('Could not reach the server.'); }
+      refresh();
+    }));
+    modal.querySelectorAll('[data-blk]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.blk];
+      try { await post(n, { block: !(data.blocked || []).includes(n) }); } catch { alert('Could not reach the server.'); }
       refresh();
     }));
     modal.querySelectorAll('[data-r]').forEach(b => b.addEventListener('click', async () => {

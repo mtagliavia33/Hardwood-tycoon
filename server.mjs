@@ -8,12 +8,12 @@ import crypto from 'node:crypto';
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
-const VERSION = 3;   // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 4;   // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, trades: [], tradeSeq: 0 };
+let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, trades: [], tradeSeq: 0, blocked: [] };
 const petKeyOk = k => typeof k === 'string' && /^[a-z]+:(\d+:)?(cash|rings)$/.test(k);
 function cleanPets(o){ const out = {}; if (o && typeof o === 'object') for (const k in o){ const n = Math.floor(num(o[k])); if (n > 0 && petKeyOk(k)) out[k] = n; } return out; }
 function tradesFor(name){ return { incoming: db.trades.filter(t => t.to === name), outgoing: db.trades.filter(t => t.from === name) }; }
@@ -112,7 +112,7 @@ const server = http.createServer(async (req, res) => {
     const got = auth(b);
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     got.a.lastSeen = Date.now(); persist();
-    return send(res, 200, { ok: true, save: got.a.save, admin: db.admins.includes(got.name), trades: tradesFor(got.name) });
+    return send(res, 200, { ok: true, save: got.a.save, admin: db.admins.includes(got.name), blocked: (db.blocked || []).includes(got.name), trades: tradesFor(got.name) });
   }
 
   // push the current save; response carries pending admin commands + admin flag
@@ -122,7 +122,7 @@ const server = http.createServer(async (req, res) => {
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     if (b.save && typeof b.save === 'object') got.a.save = b.save;
     got.a.lastSeen = Date.now(); persist();
-    return send(res, 200, { ok: true, commands: takeCommands(got.name), admin: db.admins.includes(got.name), trades: tradesFor(got.name) });
+    return send(res, 200, { ok: true, commands: takeCommands(got.name), admin: db.admins.includes(got.name), blocked: (db.blocked || []).includes(got.name), trades: tradesFor(got.name) });
   }
 
   // rename an account (auth by pin)
@@ -188,7 +188,7 @@ const server = http.createServer(async (req, res) => {
       ...statsOf(a.save), lastSeen: a.lastSeen,
       pending: (db.commands[name] || []).reduce((t, c) => t + num(c.give), 0), // queued gives not yet collected
     };
-    return send(res, 200, { players, admins: db.admins, announcement: db.announcement });
+    return send(res, 200, { players, admins: db.admins, blocked: db.blocked || [], announcement: db.announcement });
   }
 
   // owner: set or clear the global announcement everyone sees on login
@@ -223,6 +223,10 @@ const server = http.createServer(async (req, res) => {
     if (typeof b.cmd.message === 'string' && b.cmd.message.trim()) cmd.message = b.cmd.message.trim().slice(0, 500);
     if (typeof b.cmd.admin === 'boolean') db.admins = b.cmd.admin
       ? [...new Set([...db.admins, name])] : db.admins.filter(x => x !== name);
+    if (typeof b.cmd.block === 'boolean'){
+      db.blocked = b.cmd.block ? [...new Set([...(db.blocked || []), name])] : (db.blocked || []).filter(x => x !== name);
+      if (b.cmd.block) db.admins = db.admins.filter(x => x !== name); // blocking also strips admin
+    }
     // set leaderboard-rankable stats to chosen values
     if (b.cmd.set && typeof b.cmd.set === 'object'){
       cmd.set = {};
