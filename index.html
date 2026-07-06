@@ -279,6 +279,11 @@ main{padding:14px 14px 30px}
         <button class="primary" id="packbtn" style="max-width:260px;margin:0 auto">Open pack</button>
         <p class="dim" id="petactive" style="margin-top:12px"></p>
       </div>
+      <div class="panel" style="text-align:center">
+        <h3>⚔️ Battle Arena</h3>
+        <p class="dim">Send a pet into the arena, unleash its special attack, and win cash. Rarer pets hit harder.</p>
+        <button class="primary" id="battlebtn" style="max-width:260px;margin:0 auto">Enter the arena</button>
+      </div>
       <div class="panel">
         <h3>Your pets</h3>
         <div id="petgrid"></div>
@@ -1730,6 +1735,86 @@ function revealPet(res){
   ov.querySelector('#psellone').addEventListener('click', () => { petSell(res.key, 1); ov.remove(); renderPets(); });
   document.body.appendChild(ov);
 }
+/* --------------------------- pet battles -------------------------------- */
+const BATTLE_SPECIALS = ['Rookie Rush','Crossover Combo','Power Play','Mega Strike','Signature Move','Cosmic Finisher'];
+const BATTLE_RIVALS = [['🐈','Alley Cat'],['🐕','Junkyard Dog'],['🦝','Rival Raccoon'],['🐗','Wild Boar'],['🐻','Arena Bear'],['👹','Boss Beast']];
+function petHasAny(){ return S && S.pets && Object.values(S.pets).some(c => c > 0); }
+const brnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+function battleModal(){
+  if (!S) return;
+  if (!petHasAny()){ alert('You need a pet to battle — open a pack first!'); return; }
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left'; modal.style.maxWidth = '460px';
+  ov.appendChild(modal);
+  let phase = 'select', st = null;
+  const entry = () => petCost();
+
+  function selectView(){
+    const keys = Object.keys(S.pets).filter(k => S.pets[k] > 0);
+    modal.innerHTML = `
+      <div style="font-size:2.2rem;text-align:center">⚔️</div>
+      <h2 style="text-align:center">Pet Battle Arena</h2>
+      <p class="dim">Pick a pet to fight a rival. Entry: <b>${$$(entry())}</b>. Win and you pocket more than you paid!</p>
+      ${keys.map(k => { const { rk, vi } = parsePetKey(k), ri = rarityIdx(rk), R = RARITIES[ri], [emoji, name] = petTheme(ri, vi);
+        return `<button class="ghost" style="width:100%;text-align:left;margin-top:6px;border-color:${R.color}" data-fight="${k}">${emoji} ${esc(name)} <span class="dim">— ${R.label}</span></button>`; }).join('')}
+      <div class="btncol"><button class="ghost" id="bt-close">Close</button></div>`;
+    modal.querySelectorAll('[data-fight]').forEach(b => b.addEventListener('click', () => startFight(b.dataset.fight)));
+    modal.querySelector('#bt-close').addEventListener('click', () => ov.remove());
+  }
+  function startFight(key){
+    const fee = entry();
+    if (W().cash < fee){ alert('You need ' + $$(fee) + ' in your current world to enter.'); return; }
+    W().cash -= fee; save(); paint();
+    const { rk, vi } = parsePetKey(key), ri = rarityIdx(rk), [emoji, name] = petTheme(ri, vi);
+    st = { ri, emoji, name, fee, you: 100, youMax: 100, opp: 100 + ri * 15, oppMax: 100 + ri * 15,
+      log: [`You paid ${$$(fee)} to enter. Fight!`], over: false };
+    phase = 'fight'; render();
+  }
+  function oppTurn(){
+    if (st.opp <= 0) return;
+    const d = brnd(8, 15) + st.ri * 2; st.you -= d;
+    st.log.push(`${BATTLE_RIVALS[st.ri][0]} ${BATTLE_RIVALS[st.ri][1]} hits back for ${d}!`);
+    if (st.you <= 0){ st.you = 0; endFight(false); }
+  }
+  function move(kind){
+    if (st.over) return;
+    if (kind === 'attack'){ const d = brnd(11, 18); st.opp -= d; st.log.push(`${st.emoji} ${st.name} attacks for ${d}!`); }
+    else if (kind === 'special'){
+      if (Math.random() < 0.2){ st.log.push(`${st.emoji} ${st.name}'s ${BATTLE_SPECIALS[st.ri]} missed!`); }
+      else { const d = Math.ceil(brnd(22, 32) * (1 + st.ri * 0.25)); st.opp -= d; st.log.push(`⚡ ${st.name} unleashes ${BATTLE_SPECIALS[st.ri]} for ${d}!`); }
+    } else if (kind === 'guard'){ const h = brnd(12, 20); st.you = Math.min(st.youMax, st.you + h); st.log.push(`${st.emoji} ${st.name} recovers ${h} HP.`); }
+    if (st.opp <= 0){ st.opp = 0; endFight(true); render(); return; }
+    oppTurn(); render();
+  }
+  function endFight(win){
+    st.over = true; st.win = win;
+    if (win){ const reward = Math.ceil(st.fee * (2 + st.ri * 0.4)); W().cash += reward; st.reward = reward; st.log.push(`🏆 Victory! You won ${$$(reward)}!`); save(); paint(); }
+    else st.log.push('💀 Your pet fainted — you lost the entry fee.');
+  }
+  function fightView(){
+    const bar = (v, max, c) => `<div style="background:#0006;border-radius:6px;height:10px;overflow:hidden;margin-top:2px"><div style="width:${Math.max(0, v / max * 100)}%;height:100%;background:${c};transition:width .2s"></div></div>`;
+    modal.innerHTML = `
+      <h2 style="text-align:center">⚔️ Battle</h2>
+      <div class="statrow" style="border:0"><span>${st.emoji} ${esc(st.name)}</span><b>${Math.max(0, st.you)} HP</b></div>${bar(st.you, st.youMax, 'var(--good)')}
+      <div class="statrow" style="border:0;margin-top:8px"><span>${BATTLE_RIVALS[st.ri][0]} ${BATTLE_RIVALS[st.ri][1]}</span><b>${Math.max(0, st.opp)} HP</b></div>${bar(st.opp, st.oppMax, 'var(--bad)')}
+      <div style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:10px;max-height:120px;overflow:auto;font-size:.8rem">${st.log.slice(-6).map(esc).join('<br>')}</div>
+      ${st.over
+        ? `<div class="btncol"><button class="primary" id="bt-again">Battle again</button><button class="ghost" id="bt-back">Back</button></div>`
+        : `<div class="btncol"><button class="primary" id="bt-atk">Attack</button><button class="primary" id="bt-sp" style="background:linear-gradient(180deg,#7fe,#2cc);color:#023">⚡ ${BATTLE_SPECIALS[st.ri]}</button><button class="ghost" id="bt-guard">Recover</button></div>`}`;
+    if (st.over){
+      modal.querySelector('#bt-again').addEventListener('click', () => { phase = 'select'; render(); });
+      modal.querySelector('#bt-back').addEventListener('click', () => { phase = 'select'; render(); });
+    } else {
+      modal.querySelector('#bt-atk').addEventListener('click', () => move('attack'));
+      modal.querySelector('#bt-sp').addEventListener('click', () => move('special'));
+      modal.querySelector('#bt-guard').addEventListener('click', () => move('guard'));
+    }
+  }
+  function render(){ (phase === 'fight' ? fightView : selectView)(); }
+  render();
+  document.body.appendChild(ov);
+}
+
 function renderLeaders(){
   el('lbnote').textContent = (serverOn && lbOnline)
     ? 'Top 5 players across the whole game, every device.'
@@ -1924,6 +2009,7 @@ el('buymode').addEventListener('click', () => {
 });
 el('prestige').addEventListener('click', doPrestige);
 el('packbtn').addEventListener('click', () => { const res = openPack(); if (res){ revealPet(res); renderPets(); } });
+el('battlebtn').addEventListener('click', battleModal);
 el('petgrid').addEventListener('click', e => { const b = e.target.closest('[data-sell]'); if (!b) return; petSell(b.dataset.sell, 1); renderPets(); });
 el('selldupes').addEventListener('click', () => {
   if (!S) return;
