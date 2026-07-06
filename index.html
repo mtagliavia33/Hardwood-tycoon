@@ -200,6 +200,7 @@ main{padding:14px 14px 30px}
           <button id="logoutbtn">Log out and save</button>
           <button id="newacctbtn">Make a new account</button>
           <button id="renamebtn">Change account name</button>
+          <button id="retirebtn" style="display:none">🏅 Retire as a legend</button>
           <button id="adminbtn">Admin panel</button>
         </div>
       </div>
@@ -740,7 +741,7 @@ function unlockWorld(wi){
 // retire as a legend (fresh start with a permanent x5-per-legend legacy bonus).
 function checkGoat(){
   if (!S || S.goatSeen || S.rings < GOAT_RINGS) return;
-  S.goat = true; S.goatSeen = true; paint(); save();
+  S.goat = true; S.goatSeen = true; paint(); save(); updateAcctUI();
   const ov = document.createElement('div'); ov.className = 'overlay';
   ov.innerHTML = `<div class="modal" style="border:2px solid var(--gold)">
     <div style="font-size:3.4rem">🐐</div>
@@ -762,7 +763,7 @@ function retireLegend(){
   S.legends = (S.legends || 0) + 1;
   S.rings = 0; S.goat = false; S.goatSeen = false;
   Object.assign(S, freshRunState());   // fresh worlds; pets, legends and lifetime stats kept
-  rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); save();
+  rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); save(); updateAcctUI();
   showNotice('🏅', `Legend #${S.legends}!`, `You retired as a legend. Every income is now permanently ×${legendMult().toLocaleString()} and your empire starts fresh — your pets came with you. Go again, champ!`);
 }
 function ringGain(){ return Math.floor(ringsFor(totalRun()) * petRingMult()); }
@@ -998,6 +999,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 function updateAcctUI(){
   el('acctlbl').textContent = player || 'Guest';
   el('renamebtn').style.display = player ? '' : 'none'; // guests have no account to rename
+  el('retirebtn').style.display = (S && S.goat) ? '' : 'none'; // only once you're the GOAT (20M rings)
   el('acctinfo').textContent = player
     ? (onlineCreds
         ? `Playing as ${player} (online). Your empire is saved to the server and follows you on any device.`
@@ -1983,6 +1985,12 @@ el('tradebtn').addEventListener('click', tradeModal);
 el('messagebtn').addEventListener('click', messageOwnerModal);
 el('logoutbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame(); });
 el('adminbtn').addEventListener('click', openAdmin);
+el('retirebtn').addEventListener('click', () => {
+  el('acctdrop').style.display = 'none';
+  if (!S || !S.goat) return;
+  if (!confirm('Retire as a legend? Your rings, worlds, businesses and upgrades reset to a fresh start — but you keep your pets and gain a permanent ×5 income bonus for every retirement.')) return;
+  retireLegend();
+});
 el('newacctbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; leaveGame('create'); });
 el('renamebtn').addEventListener('click', async () => {
   el('acctdrop').style.display = 'none';
