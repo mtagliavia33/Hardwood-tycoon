@@ -746,7 +746,7 @@ function checkGoat(){
   ov.innerHTML = `<div class="modal" style="border:2px solid var(--gold)">
     <div style="font-size:3.4rem">🐐</div>
     <h2>You are the GOAT!</h2>
-    <p class="dim">You've reached <b>20,000,000 rings</b>. The <b style="color:var(--gold)">GOAT upgrade</b> is now active — <b>×5 to all your income, forever.</b></p>
+    <p class="dim">You've reached <b>15,000,000 rings</b>. The <b style="color:var(--gold)">GOAT upgrade</b> is now active — <b>×5 to all your income, forever.</b></p>
     <p class="dim">Now choose your legacy:</p>
     <div class="btncol">
       <button class="primary" id="goat-keep">Keep playing (keep your empire + ×5)</button>
@@ -1051,7 +1051,7 @@ function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 let manualAnnounce = null, tickerText = null, myTrades = { incoming: [], outgoing: [] };
 function boostActive(){ const d = new Date().getDay(); return d === 0 || d === 3; } // Sun & Wed
 function boostMult(){ return boostActive() ? 4 : 1; }
-const GOAT_RINGS = 20000000;                                   // GOAT status milestone
+const GOAT_RINGS = 15000000;                                   // GOAT status milestone
 function goatMult(){ return (S && S.goat) ? 5 : 1; }           // ×5 to all income once earned
 function legendMult(){ return Math.pow(5, (S && S.legends) || 0); } // ×5 per legend retirement, forever
 function scheduleTickerText(){
