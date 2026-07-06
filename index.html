@@ -1427,31 +1427,19 @@ async function openAdmin(){
   if (!S) return;
   if (iAmBlocked){ alert('You have been blocked from the admin panel.'); return; }
   await checkServer();
-  if (serverOn){ // server mode: the ADMIN_KEY on the server is the owner passcode — only the owner can open the panel
-    const p = prompt('Owner passcode:');
-    if (p === null || !p.trim()) return;
-    try {
-      const data = await api('/api/players', { headers: { 'x-admin-key': p } });
-      adminPanelServer(p, data);
-    } catch (e) {
-      alert(e.status === 401 ? 'Wrong passcode.' : e.status === 503 ? 'The server has no ADMIN_KEY set yet.' : 'Could not reach the server.');
-    }
-    return;
-  }
-  const d = adminData();
-  if (!d.ownerHash){
-    const p1 = prompt('First-time setup — choose an owner passcode.\nOnly the owner sees all accounts and grants admin:') || '';
-    if (!p1.trim()) return;
-    const p2 = prompt('Type the passcode again to confirm:') || '';
-    if (p1 !== p2){ alert("Passcodes didn't match — try again."); return; }
-    saveAdmin({ ownerHash: pinHash(p1), admins: d.admins || [] });
-    adminPanel(true);
-    return;
-  }
+  // The admin panel is owner-only: the single ADMIN_KEY on the server is the
+  // one and only passcode, checked by the server on every device. There is no
+  // offline/local fallback — otherwise anyone whose game couldn't reach the
+  // server could just set up their own passcode and get in.
+  if (!serverOn){ alert('The admin panel needs an internet connection to the server. Try again in a moment.'); return; }
   const p = prompt('Owner passcode:');
-  if (p === null) return;
-  if (pinHash(p) === d.ownerHash) adminPanel(true);
-  else alert('Wrong passcode.');
+  if (p === null || !p.trim()) return;
+  try {
+    const data = await api('/api/players', { headers: { 'x-admin-key': p } });
+    adminPanelServer(p, data);
+  } catch (e) {
+    alert(e.status === 401 ? 'Wrong passcode.' : e.status === 503 ? 'The server has no ADMIN_KEY set yet.' : 'Could not reach the server.');
+  }
 }
 
 function adminPanel(owner){
