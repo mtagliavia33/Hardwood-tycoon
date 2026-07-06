@@ -289,6 +289,8 @@ main{padding:14px 14px 30px}
         <div class="statrow"><span>Taps</span><b id="s-taps">0</b></div>
         <div class="statrow"><span>Championships (prestiges)</span><b id="s-prest">0</b></div>
         <div class="statrow"><span>Rings</span><b id="s-rings">0</b></div>
+        <div class="statrow"><span>🐐 GOAT upgrade</span><b id="s-goat">—</b></div>
+        <div class="statrow"><span>🏅 Legend retirements</span><b id="s-legends">0</b></div>
       </div>
       <div class="panel">
         <h3>💵 Bonus cash</h3>
@@ -504,14 +506,15 @@ function freshRunState(){ // what prestige resets — worlds lock again, back to
 function freshState(){
   return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
-           playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0, pets:{} };
+           playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0, pets:{},
+           goat:false, goatSeen:false, legends:0 };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends'])
         if (s[k] !== undefined) d[k] = s[k];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
@@ -646,7 +649,7 @@ function bizMult(i, wi = S.cur){
 }
 function bizRate(i, wi = S.cur){ return WD(wi).biz[i].rev * W(wi).counts[i] * bizMult(i, wi) * allMult(wi); }
 function worldRateRaw(wi = S.cur){ let t = 0; for (let i = 0; i < WD(wi).biz.length; i++) t += bizRate(i, wi); return t; }
-function worldRate(wi = S.cur){ return worldRateRaw(wi) * boostMult() * petCashMult(); }
+function worldRate(wi = S.cur){ return worldRateRaw(wi) * boostMult() * petCashMult() * goatMult() * legendMult(); }
 function clickPower(wi = S.cur){
   let m = 1, pct = 0;
   for (const u of WD(wi).ups){
@@ -654,7 +657,7 @@ function clickPower(wi = S.cur){
     if (u.type === 'click') m *= u.mult;
     if (u.type === 'clickpct') pct += u.pct;
   }
-  return WD(wi).clickBase * m * ringMult() * boostMult() * petCashMult() + pct * worldRate(wi); // worldRate already boosted+petted
+  return WD(wi).clickBase * m * ringMult() * boostMult() * petCashMult() * goatMult() * legendMult() + pct * worldRate(wi); // worldRate already boosted+petted+goat+legend
 }
 // cost of the next n units of business i in the current world (geometric series)
 function costOf(i, n, wi = S.cur){
@@ -730,6 +733,35 @@ function unlockWorld(wi){
   switchWorld(wi);
 }
 
+// GOAT status at 20M rings: grant a permanent x5 to all income, and offer to
+// retire as a legend (fresh start with a permanent x5-per-legend legacy bonus).
+function checkGoat(){
+  if (!S || S.goatSeen || S.rings < GOAT_RINGS) return;
+  S.goat = true; S.goatSeen = true; paint(); save();
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  ov.innerHTML = `<div class="modal" style="border:2px solid var(--gold)">
+    <div style="font-size:3.4rem">🐐</div>
+    <h2>You are the GOAT!</h2>
+    <p class="dim">You've reached <b>20,000,000 rings</b>. The <b style="color:var(--gold)">GOAT upgrade</b> is now active — <b>×5 to all your income, forever.</b></p>
+    <p class="dim">Now choose your legacy:</p>
+    <div class="btncol">
+      <button class="primary" id="goat-keep">Keep playing (keep your empire + ×5)</button>
+      <button class="ghost" id="goat-retire">Retire as a legend 🏅</button>
+    </div></div>`;
+  ov.querySelector('#goat-keep').addEventListener('click', () => ov.remove());
+  ov.querySelector('#goat-retire').addEventListener('click', () => {
+    if (!confirm('Retire as a legend? Your rings, worlds, businesses and upgrades reset to a fresh start — but you keep your pets and gain a permanent ×5 income bonus for every retirement.')) return;
+    ov.remove(); retireLegend();
+  });
+  document.body.appendChild(ov);
+}
+function retireLegend(){
+  S.legends = (S.legends || 0) + 1;
+  S.rings = 0; S.goat = false; S.goatSeen = false;
+  Object.assign(S, freshRunState());   // fresh worlds; pets, legends and lifetime stats kept
+  rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); save();
+  showNotice('🏅', `Legend #${S.legends}!`, `You retired as a legend. Every income is now permanently ×${legendMult().toLocaleString()} and your empire starts fresh — your pets came with you. Go again, champ!`);
+}
 function ringGain(){ return Math.floor(ringsFor(totalRun()) * petRingMult()); }
 function doPrestige(){
   if (!S) return;
@@ -866,6 +898,8 @@ function paint(){
   el('s-taps').textContent = S.taps.toLocaleString();
   el('s-prest').textContent = S.prestiges;
   el('s-rings').textContent = S.rings;
+  el('s-goat').textContent = S.goat ? '×5 active' : '—';
+  el('s-legends').textContent = (S.legends || 0) + (S.legends ? ` (×${legendMult().toLocaleString()})` : '');
   if (el('tab-leaders').style.display !== 'none') renderLeaders();
   if (el('tab-pets').style.display !== 'none') renderPetsButton();
 }
@@ -1012,6 +1046,9 @@ function totalCash(){ return S.worlds.reduce((t, w) => t + (w.cash || 0), 0); }
 let manualAnnounce = null, tickerText = null;
 function boostActive(){ const d = new Date().getDay(); return d === 0 || d === 3; } // Sun & Wed
 function boostMult(){ return boostActive() ? 4 : 1; }
+const GOAT_RINGS = 20000000;                                   // GOAT status milestone
+function goatMult(){ return (S && S.goat) ? 5 : 1; }           // ×5 to all income once earned
+function legendMult(){ return Math.pow(5, (S && S.legends) || 0); } // ×5 per legend retirement, forever
 function scheduleTickerText(){
   const d = new Date().getDay();
   if (d === 3) return '🔥 4x BOOST ACTIVE — Wacky Wednesday!';
@@ -1871,6 +1908,7 @@ setInterval(() => {
   });
   if (totalRate > S.peakRate) S.peakRate = totalRate;
   updateTicker();   // catches the day rolling over into/out of a boost day
+  checkGoat();      // GOAT milestone at 20M rings
   paint();
 }, 250);
 setInterval(save, 5000);
