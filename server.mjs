@@ -11,7 +11,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Only these accounts may ever open the admin panel — even with the right
 // passcode. They are also exempt from being blocked. Matched exactly.
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
-const VERSION = 8;   // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 9;   // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
@@ -81,11 +81,12 @@ function auth(b){ // -> account or null
   return (a && typeof b.pin === 'string' && a.pin === hash(b.pin)) ? { name, a } : null;
 }
 function statsOf(save){
-  if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0, battleWins: 0 };
+  if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0, battleWins: 0, teamWins: 0, followers: 0 };
   return {
     cash: save.worlds.reduce((t, w) => t + num(w && w.cash), 0),
     all: num(save.all), playtime: num(save.playtime), peakRate: num(save.peakRate),
     rings: num(save.rings), prestiges: num(save.prestiges), longestSession: num(save.longestSession), legends: num(save.legends), battleWins: num(save.battleWins),
+    teamWins: num(save.teamWins), followers: num(save.followers),
   };
 }
 function takeCommands(name){
@@ -191,7 +192,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/leaderboard' && req.method === 'GET'){
     const rows = Object.entries(db.accounts).map(([name, a]) => {
       const s = statsOf(a.save);
-      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, battleWins: s.battleWins, lastSeen: a.lastSeen };
+      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, battleWins: s.battleWins, teamWins: s.teamWins, followers: s.followers, lastSeen: a.lastSeen };
     });
     return send(res, 200, { rows, announcement: activeAnnouncement(), version: ver() });
   }
@@ -250,7 +251,7 @@ const server = http.createServer(async (req, res) => {
     // set leaderboard-rankable stats to chosen values
     if (b.cmd.set && typeof b.cmd.set === 'object'){
       cmd.set = {};
-      for (const k of ['all', 'peakRate', 'rings', 'playtime', 'longestSession', 'legends', 'battleWins']){
+      for (const k of ['all', 'peakRate', 'rings', 'playtime', 'longestSession', 'legends', 'battleWins', 'teamWins', 'followers']){
         if (k in b.cmd.set){ const v = num(b.cmd.set[k]); if (v >= 0) cmd.set[k] = v; }
       }
       if (!Object.keys(cmd.set).length) delete cmd.set;
@@ -282,6 +283,17 @@ const server = http.createServer(async (req, res) => {
     const players = {};
     for (const [name, a] of Object.entries(db.accounts)) players[name] = (a.save && a.save.pets) || {};
     return send(res, 200, { players });
+  }
+
+  // teams: every account that has built a team, for real-player challenges.
+  // Raw player ids only — the client derives ratings from its own pool.
+  if (url.pathname === '/api/teams' && req.method === 'GET'){
+    const teams = [];
+    for (const [name, a] of Object.entries(db.accounts)){
+      const ids = (a.save && Array.isArray(a.save.roster)) ? a.save.roster.filter(Number.isInteger).slice(0, 32) : [];
+      if (ids.length) teams.push({ name, roster: ids, teamWins: num(a.save.teamWins), teamLosses: num(a.save.teamLosses), lastSeen: a.lastSeen });
+    }
+    return send(res, 200, { teams });
   }
 
   // current trades involving a player

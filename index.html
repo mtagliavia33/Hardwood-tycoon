@@ -182,6 +182,7 @@ main{padding:14px 14px 30px}
 .msg-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .msg .who{font-weight:700;font-size:.85rem}
 .msg .body{font-size:.9rem;white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.posbadge{display:inline-block;min-width:26px;text-align:center;font-size:.62rem;font-weight:800;letter-spacing:.4px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 4px;color:var(--gold)}
 @media(max-width:520px){ .tapbtn{width:72px;height:72px;font-size:2.1rem} .cash{font-size:1.55rem} }
 </style>
 </head>
@@ -201,6 +202,7 @@ main{padding:14px 14px 30px}
           <button id="newacctbtn">Make a new account</button>
           <button id="renamebtn">Change account name</button>
           <button id="retirebtn" style="display:none">🏅 Retire as a legend</button>
+          <button id="classicbtn">🕹️ Classic mode</button>
           <button id="adminbtn">Admin panel</button>
         </div>
       </div>
@@ -218,6 +220,7 @@ main{padding:14px 14px 30px}
     <button class="tab" data-tab="prestige">🏆 Prestige</button>
     <button class="tab" data-tab="leaders">🏅 Leaderboard</button>
     <button class="tab" data-tab="pets">🐾 Pets</button>
+    <button class="tab" data-tab="team">🧢 Coach</button>
     <button class="tab" data-tab="stats">Stats</button>
   </div>
 
@@ -270,6 +273,8 @@ main{padding:14px 14px 30px}
       <div class="panel"><h3>⏳ Longest single session</h3><div id="lb-session"></div></div>
       <div class="panel"><h3>🏅 Most retirements</h3><div id="lb-legends"></div></div>
       <div class="panel"><h3>⚔️ Most battle wins</h3><div id="lb-wins"></div></div>
+      <div class="panel coach-only"><h3>🏆 Most team wins</h3><div id="lb-teamwins"></div></div>
+      <div class="panel coach-only"><h3>📱 Most followers</h3><div id="lb-followers"></div></div>
     </section>
 
     <section id="tab-pets" style="display:none">
@@ -289,6 +294,44 @@ main{padding:14px 14px 30px}
         <h3>Your pets</h3>
         <div id="petgrid"></div>
         <div class="btncol"><button class="ghost" id="selldupes">💰 Sell all duplicates</button></div>
+      </div>
+    </section>
+
+    <section id="tab-team" style="display:none">
+      <div class="panel" id="coachcard" style="text-align:center"></div>
+      <div class="panel">
+        <h3>🏀 My starting five</h3>
+        <div id="lineup"></div>
+        <h3 style="margin-top:14px">Bench &amp; roster</h3>
+        <div id="rosterlist"></div>
+      </div>
+      <div class="panel" style="text-align:center">
+        <h3>🎮 Play a game</h3>
+        <p class="dim">Pick an opponent, bet on yourself if you're feeling it, and coach your team to a W. Winning pays cash and followers.</p>
+        <div class="btncol">
+          <button class="primary" id="playai">🤖 Play an AI team</button>
+          <button class="ghost" id="playpvp">🌐 Challenge a real player</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>💸 Transfer market</h3>
+        <p class="dim">Buy players with cash — prices scale with your income, so superstars are always a stretch. Your best player at each position starts automatically.</p>
+        <div id="market"></div>
+      </div>
+      <div class="panel">
+        <h3>🎰 Sportsbook</h3>
+        <p class="dim">League games between other teams. Pick a side, place your bet, and the game plays out instantly.</p>
+        <div id="sblist"></div>
+        <div class="btncol"><button class="ghost" id="sbrefresh">🔄 New matchups</button></div>
+      </div>
+      <div class="panel">
+        <h3>🌴 Coach life</h3>
+        <p class="dim">Being famous pays. Post on social media for cash, and buy the coach lifestyle — every big purchase brings a wave of new followers.</p>
+        <div style="text-align:center;margin:8px 0">
+          <button class="primary" id="postbtn" style="max-width:300px;margin:0 auto">📱 Make a post</button>
+          <p class="dim" id="postinfo" style="margin-top:8px"></p>
+        </div>
+        <div id="lifeshop"></div>
       </div>
     </section>
 
@@ -482,7 +525,9 @@ function applySport(id){
   el('tap').textContent = t.ball;
   document.title = `${t.brand} Tycoon — ${t.label} Idle Empire`;
   renderSportRow();
-  if (S){ rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint(); }
+  sbBoard = null; // sportsbook teams re-theme to the new sport
+  if (S){ rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+    if (el('tab-team').style.display !== 'none') renderTeam(); }
 }
 function renderSportRow(){
   const row = el('sportrow');
@@ -518,15 +563,18 @@ function freshState(){
   return { ...freshRunState(),
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
            playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0, pets:{},
-           goat:false, goatSeen:false, legends:0, battleWins:0, battleLosses:0 };
+           goat:false, goatSeen:false, legends:0, battleWins:0, battleLosses:0,
+           roster:[], teamWins:0, teamLosses:0, followers:0, lifestyle:[], lastPost:0, classic:false };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses','roster','teamWins','teamLosses','followers','lifestyle','lastPost','classic'])
         if (s[k] !== undefined) d[k] = s[k];
+      d.roster = Array.isArray(d.roster) ? [...new Set(d.roster.filter(i => Number.isInteger(i) && PLAYER_POOL[i]))] : [];
+      d.lifestyle = Array.isArray(d.lifestyle) ? [...new Set(d.lifestyle.filter(i => Number.isInteger(i) && LIFESTYLE_ITEMS[i]))] : [];
       if (Array.isArray(s.worlds)) s.worlds.forEach((w, i) => {
         if (!d.worlds[i]) return;
         Object.assign(d.worlds[i], w);
@@ -651,6 +699,204 @@ function sellAllDupes(){
   if (total > 0){ W().cash += total; paint(); save(); }
   return { total, sold };
 }
+
+/* ====================== coach mode: team & games ========================== */
+// You are the Coach: buy players, play games, bet, get famous. All purchases
+// and payouts move W().cash directly (never earn()) so — like battle rewards —
+// none of it inflates the all-time money leaderboard.
+const POS_LABELS = { basketball:['PG','SG','SF','PF','C'], soccer:['GK','DF','MF','WG','ST'],
+                     football:['QB','RB','WR','TE','K'],   baseball:['P','C','SS','3B','CF'] };
+// 25 players: 5 tiers × 5 positions. id = index, pos = id%5. Fixed jitter keeps
+// ratings distinct without randomness (the pool must be identical on every device).
+const PLAYER_TIERS = [62, 71, 80, 88, 95];
+const PLAYER_POOL = Array.from({ length: 25 }, (_, i) =>
+  ({ pos: i % 5, rating: Math.min(97, PLAYER_TIERS[Math.floor(i / 5)] + (i * 7) % 4) }));
+const PLAYER_NAMES = {
+  basketball:['Dribbles Dawson','Swish Watkins','Slasher Lee','Bounce Brooks','Tower Torres',
+              'Dimes Delgado','Splash Sterling','Baseline Banks','Windmill Woods','Skyhook Silas',
+              'Ankles Avery','Rainmaker Reyes','Clutch Carter','Poster Pierce','Blockzilla Bell',
+              'Wizard Whitfield','Lights-Out Lopez','Highlight Hayes','Thunder Thompson','Mountain Malone',
+              'Maestro Maxwell','Deadeye Diaz','Skywalker Sloan','Earthquake Ellis','Colossus Cruz'],
+  soccer:['Gloves Garcia','Wall Walker','Passmaster Petit','Turbo Torres','Poacher Price',
+          'Catman Costa','Tackle Tanaka','Metronome Mora','Flash Fontaine','Header Hernandez',
+          'Spider Silva','Fortress Fischer','Playmaker Park','Rocket Ramos','Golazo Gomez',
+          'Magnet Marino','Ironclad Ivanov','Visionary Vega','Lightning Lukic','Hat-Trick Hansen',
+          'The Cat Cabrera','Titan Toure','Maestro Mbaye','Blur Bakari','Netbuster Novak'],
+  football:['Cannon Cooper','Jukebox Jones','Hands Harper','Brick Bradley','Toecap Turner',
+            'Rifle Rodriguez','Bulldozer Bates','Streak Sanders','Anchor Adams','Moonboot Mills',
+            'Laser Lawson','Freight Train Ford','Rocket Reed','Fortress Flores','Automatic Ames',
+            'Howitzer Hicks','Nitro Nunez','Blaze Bishop','Titan Tate','Golden Leg Gray',
+            'The Arm Armstrong','Comet Carver','Ghost Griffin','Juggernaut James','Perfect Petrov'],
+  baseball:['Curveball Casey','Mitts Mendoza','Scooper Sato','Hot Corner Hall','Wheels Wilson',
+            'Knuckles Novak','Backstop Bishop','Vacuum Vargas','Rifle-Arm Ruiz','Jets Jackson',
+            'Heater Hoffman','Iron Mask Ito','Slick Salazar','Laser Lopez','Gazelle Gordon',
+            'Cyclone Chavez','Golden Glove Gallo','Wizard Webb','Slugger Slate','Comet Kimura',
+            'The Freeze Fuentes','Fortress Fernandez','Quicksilver Quinn','Moonshot Morales','Skycatch Suzuki'],
+};
+const AI_TEAM_NAMES = {
+  basketball:['Downtown Dunkers','Alley-Oop Owls','Crossover Kings','Rim Rockers','Fastbreak Foxes','Buzzer Beaters','Triple Threat Titans','Hangtime Hawks'],
+  soccer:['Golden Boot FC','Bicycle Kick United','Nutmeg City','Volley Vipers','Corner Kick Crew','Offside Outlaws','Free Kick Falcons','Penalty Panthers'],
+  football:['Blitz Brigade','Endzone Elks','Hail Mary Heroes','Gridiron Grizzlies','Pigskin Pirates','Touchdown Thunder','Red Zone Raptors','Fourth Down Falcons'],
+  baseball:['Grand Slam Giants','Curveball Crushers','Diamond Dogs','Bullpen Bandits','Home Run Herd','Knuckleball Knights','Walk-Off Wolves','Moonshot Mariners'],
+};
+const SPORT_SCORES = { basketball:{ lo:78, hi:118 }, soccer:{ lo:1, hi:5 }, football:{ lo:13, hi:45 }, baseball:{ lo:2, hi:11 } };
+const WALKON = 50, HOUSE_EDGE = 0.95, MIN_BET = 10;
+const AI_TIERS = [['🐣','Rookie', -10], ['💪','Pro', 0], ['⭐','All-Star', 8], ['👑','Legend', 16]];
+
+function poolPlayer(id){ return PLAYER_POOL[id] || null; }
+function playerName(id){ const n = PLAYER_NAMES[sport] || PLAYER_NAMES.basketball; return n[id] || 'Player ' + id; }
+function posLabel(pi){ return (POS_LABELS[sport] || POS_LABELS.basketball)[pi] || '?'; }
+// prices scale with income (petCost pattern) so the market never goes stale
+function playerPrice(id){ return Math.ceil(petCost() * Math.pow(2, (poolPlayer(id).rating - 60) / 5)); }
+function playerSellValue(id){ return Math.ceil(playerPrice(id) / 2); }
+function buyPlayer(id){
+  if (!S || (S.roster || []).includes(id) || !poolPlayer(id)) return false;
+  const cost = playerPrice(id);
+  if (W().cash < cost) return false;
+  W().cash -= cost;
+  (S.roster = S.roster || []).push(id);
+  paint(); save(); return true;
+}
+function sellPlayer(id){
+  if (!S) return 0;
+  const i = (S.roster || []).indexOf(id);
+  if (i < 0) return 0;
+  const val = playerSellValue(id);
+  S.roster.splice(i, 1);
+  W().cash += val; paint(); save();
+  return val;
+}
+function starters(){ // auto-lineup: best owned player per position; null slot = walk-on
+  const out = [null, null, null, null, null];
+  for (const id of (S.roster || [])){
+    const p = poolPlayer(id);
+    if (p && (out[p.pos] === null || poolPlayer(out[p.pos]).rating < p.rating)) out[p.pos] = id;
+  }
+  return out;
+}
+function teamRating(){
+  const r = starters().map(id => id === null ? WALKON : poolPlayer(id).rating);
+  return Math.round(r.reduce((a, b) => a + b, 0) / 5 * 10) / 10;
+}
+/* ---- sim & betting math ---- */
+function winProb(a, b){ return 1 / (1 + Math.pow(10, (b - a) / 12)); } // Elo-style logistic
+function oddsFor(p){ return Math.round(Math.min(20, Math.max(1.05, HOUSE_EDGE / p)) * 100) / 100; }
+function maxBet(){ return Math.max(MIN_BET, Math.min(Math.floor(W().cash), Math.ceil(petCost() * 100))); }
+function gameFee(){ return petCost(); }
+function gamePrize(p){ return Math.ceil(gameFee() * (1.4 + 2 * (1 - p))); } // underdog wins pay more
+function aiTeam(tier){
+  const names = AI_TEAM_NAMES[sport] || AI_TEAM_NAMES.basketball;
+  const t = AI_TIERS[tier] || AI_TIERS[1];
+  return { name: t[0] + ' ' + names[brnd(0, names.length - 1)],
+           rating: Math.min(99, Math.max(45, Math.round(teamRating()) + t[2] + brnd(-2, 2))) };
+}
+function ratingOfRoster(ids){ // a rival's team rating from their raw roster ids
+  const out = [null, null, null, null, null];
+  for (const id of (ids || [])){
+    const p = poolPlayer(id);
+    if (p && (out[p.pos] === null || poolPlayer(out[p.pos]).rating < p.rating)) out[p.pos] = id;
+  }
+  const r = out.map(id => id === null ? WALKON : poolPlayer(id).rating);
+  return Math.round(r.reduce((a, b) => a + b, 0) / 5 * 10) / 10;
+}
+function simGame(myR, oppR, oppName){
+  const p = winProb(myR, oppR);
+  const win = Math.random() < p;               // outcome decided by the quoted odds
+  const sc = SPORT_SCORES[sport] || SPORT_SCORES.basketball;
+  const hiScore = brnd(Math.ceil((sc.lo + sc.hi) / 2), sc.hi);
+  const margin = Math.max(1, Math.round(brnd(1, Math.max(2, Math.ceil((sc.hi - sc.lo) / 3))) + Math.abs(myR - oppR) / 4));
+  const loScore = Math.max(0, hiScore - margin);
+  const my = win ? hiScore : loScore, opp = win ? loScore : hiScore;
+  const chunk = t => { const q = [0, 0, 0, 0]; for (let i = 0; i < t; i++) q[brnd(0, 3)]++; return q; };
+  const mq = chunk(my), oq = chunk(opp);
+  const own = starters().filter(id => id !== null);
+  const star = own.length ? playerName(own[brnd(0, own.length - 1)]) : 'Your walk-on squad';
+  const FLAVOR = ['%s takes over the period!','%s gets the crowd on their feet!','Huge defensive stop — %s is everywhere!','%s with a highlight-reel play!','Coach draws it up and %s delivers!'];
+  let ms = 0, os = 0;
+  const log = [0, 1, 2, 3].map(i => { ms += mq[i]; os += oq[i];
+    return `Q${i + 1} · ${FLAVOR[brnd(0, FLAVOR.length - 1)].replace('%s', star)} — ${ms}–${os}`; });
+  log.push(win ? `🏁 FINAL ${my}–${opp} — you beat ${oppName}!` : `🏁 FINAL ${opp}–${my} — ${oppName} wins.`);
+  return { win, my, opp, p, log };
+}
+function followersForWin(oppR){
+  return Math.ceil((S.followers || 0) * 0.02) + 25 + Math.max(0, Math.round((oppR - teamRating()) * 10));
+}
+function settleGame(win, p, stake, odds, oppR){
+  if (win){
+    S.teamWins = (S.teamWins || 0) + 1;
+    const payout = gamePrize(p) + (stake > 0 ? Math.ceil(stake * odds) : 0);
+    W().cash += payout;
+    S.followers = (S.followers || 0) + followersForWin(oppR);
+    paint(); save();
+    return payout;
+  }
+  S.teamLosses = (S.teamLosses || 0) + 1;
+  paint(); save();
+  return 0;
+}
+/* ---- sportsbook: in-memory board of AI matchups, bets resolve instantly ---- */
+let sbBoard = null;
+function sbMatchup(){
+  const names = AI_TEAM_NAMES[sport] || AI_TEAM_NAMES.basketball;
+  const a = brnd(0, names.length - 1);
+  let b = brnd(0, names.length - 1);
+  if (b === a) b = (a + 1) % names.length;
+  const home = { name: names[a], rating: brnd(60, 97) }, away = { name: names[b], rating: brnd(60, 97) };
+  const pH = winProb(home.rating, away.rating);
+  return { home, away, pH, oddsH: oddsFor(pH), oddsA: oddsFor(1 - pH) };
+}
+function makeSbBoard(){ sbBoard = [0, 1, 2, 3].map(sbMatchup); }
+function sbBet(i, side, stake){
+  const m = sbBoard && sbBoard[i];
+  stake = Math.floor(stake);
+  if (!S || !m || !(stake >= MIN_BET) || stake > maxBet() || stake > W().cash) return null;
+  W().cash -= stake;
+  const p = side === 'home' ? m.pH : 1 - m.pH, odds = side === 'home' ? m.oddsH : m.oddsA;
+  const win = Math.random() < p;
+  const payout = win ? Math.ceil(stake * odds) : 0;
+  if (win){ W().cash += payout; S.followers = (S.followers || 0) + 10; }
+  const pick = side === 'home' ? m.home : m.away, other = side === 'home' ? m.away : m.home;
+  sbBoard[i] = sbMatchup();                    // the game is played — fresh matchup replaces it
+  paint(); save();
+  return { win, payout, winner: win ? pick.name : other.name };
+}
+/* ---- coach life: lifestyle shop + social media ---- */
+const LIFESTYLE_ITEMS = [ // price = petCost()*mult (income-scaled); fol = one-time followers
+  { e:'🛴', name:'Team Scooter',   mult:5,     fol:100 },
+  { e:'🚗', name:'Coachmobile',    mult:15,    fol:400 },
+  { e:'🏠', name:'Starter House',  mult:40,    fol:1200 },
+  { e:'🛥️', name:'Speedboat',      mult:100,   fol:3500 },
+  { e:'🏎️', name:'Supercar',       mult:250,   fol:10000 },
+  { e:'🏖️', name:'Beach House',    mult:600,   fol:30000 },
+  { e:'🏰', name:'Mansion',        mult:1500,  fol:100000 },
+  { e:'✈️', name:'Private Jet',    mult:4000,  fol:350000 },
+  { e:'🏝️', name:'Private Island', mult:10000, fol:1200000 },
+  { e:'🚀', name:'Space Villa',    mult:25000, fol:5000000 },
+];
+function lifePrice(i){ return Math.ceil(petCost() * LIFESTYLE_ITEMS[i].mult); }
+function buyLife(i){
+  if (!S || (S.lifestyle || []).includes(i) || !LIFESTYLE_ITEMS[i]) return false;
+  const cost = lifePrice(i);
+  if (W().cash < cost) return false;
+  W().cash -= cost;
+  (S.lifestyle = S.lifestyle || []).push(i);
+  S.followers = (S.followers || 0) + LIFESTYLE_ITEMS[i].fol;
+  paint(); save(); return true;
+}
+const POST_COOLDOWN = 60000; // one post a minute
+const POST_TEXTS = ['Coach posted a locker-room selfie — it went viral!','Coach shared the team bus karaoke video 🎤','Coach posted a slow-mo dunk from practice 🔥','Coach revealed the pre-game snack: pancakes 🥞','Coach did the newest dance trend. The internet loves it 💃','Coach posted “big announcement soon 👀”'];
+function postPayout(){ return Math.ceil(petCost() * (0.5 + Math.log10(1 + (S.followers || 0)))); }
+function postReady(){ return Date.now() - (S.lastPost || 0) >= POST_COOLDOWN; }
+function makePost(){
+  if (!S || !postReady()) return null;
+  S.lastPost = Date.now();
+  const pay = postPayout();
+  W().cash += pay;
+  S.followers = (S.followers || 0) + Math.max(5, Math.ceil((S.followers || 0) * 0.01));
+  paint(); save();
+  return { pay, text: POST_TEXTS[brnd(0, POST_TEXTS.length - 1)] };
+}
+const fmtFol = n => fmt(Math.floor(n)) + ' followers';
 
 function bizMult(i, wi = S.cur){
   let m = 1;
@@ -913,14 +1159,16 @@ function paint(){
   el('s-legends').textContent = (S.legends || 0) + (S.legends ? ` (×${legendMult().toLocaleString()})` : '');
   if (el('tab-leaders').style.display !== 'none') renderLeaders();
   if (el('tab-pets').style.display !== 'none') renderPetsButton();
+  if (el('tab-team').style.display !== 'none') paintTeam();
 }
 
 /* =============================== tabs ==================================== */
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-  for (const sec of ['empire','upgrades','prestige','leaders','pets','stats'])
+  for (const sec of ['empire','upgrades','prestige','leaders','pets','team','stats'])
     el('tab-' + sec).style.display = t.dataset.tab === sec ? '' : 'none';
   if (t.dataset.tab === 'pets' && S) renderPets();
+  if (t.dataset.tab === 'team' && S) renderTeam();
   if (t.dataset.tab === 'leaders' && S){
     renderLeaders();
     if (serverOn) api('/api/leaderboard').then(r => { lbOnline = r.rows; renderLeaders(); }).catch(() => {});
@@ -1135,7 +1383,7 @@ function applyServerFlags(r){ // admin flag + queued commands from any /api resp
   let touched = false; const msgs = [];
   for (const c of r.commands || []){
     if (isFinite(c.give) && c.give > 0){ W().cash += c.give; touched = true; }
-    if (c.reset === true){ const keptPets = S.pets; S = freshState(); S.pets = keptPets || {}; rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); touched = true; }
+    if (c.reset === true){ const keptPets = S.pets; S = freshState(); S.pets = keptPets || {}; rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); applyClassic(); touched = true; }
     if (typeof c.message === 'string' && c.message) msgs.push(c.message);
     if (c.trade){ // received pets/money from a trade
       S.pets = S.pets || {};
@@ -1599,6 +1847,7 @@ function setStatsModal(key, name, cur, after){
     ['all', 'Money earned (all-time)'], ['peakRate', 'Peak $/sec'], ['rings', 'Rings'],
     ['playtime', 'Time played (seconds)'], ['longestSession', 'Longest session (seconds)'],
     ['legends', 'Retirements'], ['battleWins', 'Battle wins'],
+    ['teamWins', 'Team wins'], ['followers', 'Followers'],
   ];
   const ov = document.createElement('div'); ov.className = 'overlay';
   const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left';
@@ -1764,21 +2013,21 @@ function fmtTime(sec){
 function leaderRows(){
   if (serverOn && lbOnline){ // global boards from the server
     const rows = lbOnline.map(r => ({ name: r.name, you: player === r.name,
-      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0, session: r.longestSession || 0, legends: r.legends || 0, wins: r.battleWins || 0 }));
+      time: r.playtime || 0, money: r.all || 0, rate: r.peakRate || 0, rings: r.rings || 0, session: r.longestSession || 0, legends: r.legends || 0, wins: r.battleWins || 0, tw: r.teamWins || 0, fol: r.followers || 0 }));
     const mine = rows.find(r => r.you);
-    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; mine.session = S.longestSession; mine.legends = S.legends || 0; mine.wins = S.battleWins || 0; } // live numbers for me
-    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings, session: S.longestSession, legends: S.legends || 0, wins: S.battleWins || 0 });
+    if (mine && S){ mine.time = S.playtime; mine.money = S.all; mine.rate = S.peakRate; mine.rings = S.rings; mine.session = S.longestSession; mine.legends = S.legends || 0; mine.wins = S.battleWins || 0; mine.tw = S.teamWins || 0; mine.fol = S.followers || 0; } // live numbers for me
+    if (!mine && S && !player) rows.push({ name: 'Guest', you: true, time: S.playtime, money: S.all, rate: S.peakRate, rings: S.rings, session: S.longestSession, legends: S.legends || 0, wins: S.battleWins || 0, tw: S.teamWins || 0, fol: S.followers || 0 });
     return rows;
   }
   const rows = [];
   for (const n of accounts()){
-    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0, wins:S.battleWins||0 }); continue; }
+    if (S && player === n){ rows.push({ name:n, you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0, wins:S.battleWins||0, tw:S.teamWins||0, fol:S.followers||0 }); continue; }
     try {
       const s = JSON.parse(localStorage.getItem(acctKey(n)));
-      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0, session:s.longestSession || 0, legends:s.legends || 0, wins:s.battleWins || 0 });
+      if (s) rows.push({ name:n, time:s.playtime || 0, money:s.all || 0, rate:s.peakRate || 0, rings:s.rings || 0, session:s.longestSession || 0, legends:s.legends || 0, wins:s.battleWins || 0, tw:s.teamWins || 0, fol:s.followers || 0 });
     } catch {}
   }
-  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0, wins:S.battleWins||0 });
+  if (S && !player) rows.push({ name:'Guest', you:true, time:S.playtime, money:S.all, rate:S.peakRate, rings:S.rings, session:S.longestSession, legends:S.legends||0, wins:S.battleWins||0, tw:S.teamWins||0, fol:S.followers||0 });
   return rows;
 }
 function renderBoard(id, rows, val){
@@ -1909,6 +2158,211 @@ function battleModal(){
   document.body.appendChild(ov);
 }
 
+/* ----------------------------- coach tab --------------------------------- */
+function renderTeam(){
+  if (!S) return;
+  el('coachcard').innerHTML = `
+    <div style="font-size:2.4rem">🧢</div>
+    <h2 style="margin:2px 0">Coach ${esc(player || 'Guest')}</h2>
+    <p class="dim" style="margin:4px 0">📱 <b style="color:var(--gold)">${fmt(S.followers || 0)}</b> followers
+      &nbsp;·&nbsp; Record <b style="color:var(--good)">${S.teamWins || 0}W</b>–<b style="color:var(--bad)">${S.teamLosses || 0}L</b>
+      &nbsp;·&nbsp; Team rating <b>${teamRating()}</b></p>`;
+  const st = starters();
+  el('lineup').innerHTML = st.map((id, pi) => id === null
+    ? `<div class="statrow"><span><span class="posbadge">${posLabel(pi)}</span> <span class="dim">Walk-on</span></span><b class="dim">${WALKON}</b></div>`
+    : `<div class="statrow"><span><span class="posbadge">${posLabel(pi)}</span> ${esc(playerName(id))}</span><b>${poolPlayer(id).rating}</b></div>`).join('');
+  const ros = (S.roster || []).slice().sort((a, b) => poolPlayer(b).rating - poolPlayer(a).rating);
+  el('rosterlist').innerHTML = ros.map(id =>
+    `<div class="statrow"><span><span class="posbadge">${posLabel(poolPlayer(id).pos)}</span> ${esc(playerName(id))} <span class="dim">rating ${poolPlayer(id).rating}</span></span>
+      <button class="ghost mini" data-sellp="${id}">Sell ${$$(playerSellValue(id))}</button></div>`).join('')
+    || '<p class="dim">No players yet — hit the transfer market below!</p>';
+  el('rosterlist').querySelectorAll('[data-sellp]').forEach(b => b.addEventListener('click', () => {
+    const id = +b.dataset.sellp;
+    if (confirm(`Sell ${playerName(id)} for ${$$(playerSellValue(id))}?`)){ sellPlayer(id); renderTeam(); }
+  }));
+  const order = PLAYER_POOL.map((_, i) => i).sort((a, b) => poolPlayer(a).rating - poolPlayer(b).rating);
+  el('market').innerHTML = order.map(id => {
+    const p = poolPlayer(id), owned = (S.roster || []).includes(id);
+    return `<div class="statrow"><span><span class="posbadge">${posLabel(p.pos)}</span> ${esc(playerName(id))} <span class="dim">rating ${p.rating}</span></span>
+      ${owned ? '<b style="color:var(--good)">✓ On your team</b>' : `<button class="ghost mini" data-buyp="${id}">💵 ${$$(playerPrice(id))}</button>`}</div>`;
+  }).join('');
+  el('market').querySelectorAll('[data-buyp]').forEach(b => b.addEventListener('click', () => {
+    const id = +b.dataset.buyp;
+    if (!buyPlayer(id)) alert(`You need ${$$(playerPrice(id))} in your current world to sign ${playerName(id)}.`);
+    renderTeam();
+  }));
+  if (!sbBoard) makeSbBoard();
+  renderSb();
+  renderLife();
+  paintTeam();
+}
+function renderSb(){
+  el('sblist').innerHTML = sbBoard.map((m, i) => `
+    <div class="statrow" style="flex-wrap:wrap;gap:6px">
+      <span>${esc(m.home.name)} <span class="dim">(${m.home.rating})</span> vs ${esc(m.away.name)} <span class="dim">(${m.away.rating})</span></span>
+      <span><button class="ghost mini" data-sb="${i}:home">1️⃣ ×${m.oddsH}</button>
+      <button class="ghost mini" data-sb="${i}:away">2️⃣ ×${m.oddsA}</button></span>
+    </div>`).join('');
+  el('sblist').querySelectorAll('[data-sb]').forEach(b => b.addEventListener('click', () => {
+    const [i, side] = b.dataset.sb.split(':');
+    const m = sbBoard[+i];
+    if (!m) return;
+    const odds = side === 'home' ? m.oddsH : m.oddsA;
+    const team = side === 'home' ? m.home.name : m.away.name;
+    const amt = Math.floor(parseAmount(prompt(`Bet on ${team} (pays ×${odds}).\nHow much? Max bet ${$$(Math.min(maxBet(), Math.floor(W().cash)))}. Suffixes like 5m work.`) || '') || 0);
+    if (amt <= 0) return;
+    if (amt < MIN_BET){ alert(`Minimum bet is ${$$(MIN_BET)}.`); return; }
+    if (amt > maxBet() || amt > W().cash){ alert(`Max bet right now is ${$$(Math.min(maxBet(), Math.floor(W().cash)))}.`); return; }
+    const r = sbBet(+i, side, amt);
+    if (!r) return;
+    alert(r.win ? `🎉 ${r.winner} wins! You won ${$$(r.payout)}!` : `😬 ${r.winner} wins — you lost your ${$$(amt)} bet.`);
+    renderTeam();
+  }));
+}
+function renderLife(){
+  const owned = S.lifestyle || [];
+  el('lifeshop').innerHTML = LIFESTYLE_ITEMS.map((it, i) => owned.includes(i)
+    ? `<div class="statrow"><span>${it.e} ${it.name}</span><b style="color:var(--good)">✓ Owned</b></div>`
+    : `<div class="statrow"><span>${it.e} ${it.name} <span class="dim">+${fmt(it.fol)} 📱</span></span><button class="ghost mini" data-life="${i}">💵 ${$$(lifePrice(i))}</button></div>`).join('');
+  el('lifeshop').querySelectorAll('[data-life]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.life;
+    if (buyLife(i)) alert(`${LIFESTYLE_ITEMS[i].e} You bought the ${LIFESTYLE_ITEMS[i].name}! +${fmt(LIFESTYLE_ITEMS[i].fol)} followers 📱`);
+    else alert(`You need ${$$(lifePrice(i))} in your current world.`);
+    renderTeam();
+  }));
+}
+function paintTeam(){ // light per-tick refresh — no DOM rebuilds
+  if (!S) return;
+  const pb = el('postbtn');
+  if (!pb) return;
+  const left = Math.max(0, POST_COOLDOWN - (Date.now() - (S.lastPost || 0)));
+  pb.disabled = left > 0;
+  pb.textContent = left > 0 ? `📱 Next post in ${Math.ceil(left / 1000)}s` : `📱 Make a post — earn ${$$(postPayout())}`;
+  el('postinfo').textContent = `${fmt(S.followers || 0)} followers · more followers = bigger paydays`;
+}
+function gameModal(mode){
+  if (!S) return;
+  if (mode === 'pvp' && !serverOn){ alert('Challenging real players needs an internet connection.'); return; }
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left'; modal.style.maxWidth = '460px';
+  ov.appendChild(modal);
+  let opp = null;
+  const closeBtn = () => modal.querySelector('#gm-close').addEventListener('click', () => ov.remove());
+  function pickView(){
+    if (mode === 'ai'){
+      modal.innerHTML = `
+        <h2 style="text-align:center">🤖 Pick your opponent</h2>
+        <p class="dim" style="text-align:center">Your team rating: <b>${teamRating()}</b> · Entry fee: <b>${$$(gameFee())}</b></p>
+        ${AI_TIERS.map((t, i) => {
+          const approx = Math.min(99, Math.max(45, Math.round(teamRating()) + t[2]));
+          const p = winProb(teamRating(), approx);
+          return `<button class="ghost" style="width:100%;text-align:left;margin-top:6px" data-tier="${i}">${t[0]} ${t[1]} team <span class="dim">— rating ~${approx} · you win ~${Math.round(p * 100)}% · prize ${$$(gamePrize(p))}</span></button>`;
+        }).join('')}
+        <div class="btncol"><button class="ghost" id="gm-close">Close</button></div>`;
+      modal.querySelectorAll('[data-tier]').forEach(b => b.addEventListener('click', () => { opp = aiTeam(+b.dataset.tier); betView(); }));
+      closeBtn();
+      return;
+    }
+    modal.innerHTML = '<h2 style="text-align:center">🌐 Challenge a real player</h2><p class="dim" style="text-align:center">Finding teams…</p>';
+    api('/api/teams').then(r => {
+      const teams = (r.teams || []).filter(t => t.name !== player);
+      teams.forEach(t => { t.rating = ratingOfRoster(t.roster); });
+      teams.sort((a, b) => Math.abs(a.rating - teamRating()) - Math.abs(b.rating - teamRating()));
+      modal.innerHTML = `
+        <h2 style="text-align:center">🌐 Challenge a real player</h2>
+        ${teams.length
+          ? `<p class="dim" style="text-align:center">Your rating: <b>${teamRating()}</b> · Entry fee: <b>${$$(gameFee())}</b>. Their team plays on autopilot — only your money and record change.</p>`
+          + teams.slice(0, 12).map((t, i) => `<button class="ghost" style="width:100%;text-align:left;margin-top:6px" data-opp="${i}">🧢 ${esc(t.name)} <span class="dim">— rating ${t.rating} · ${t.teamWins || 0}W–${t.teamLosses || 0}L</span></button>`).join('')
+          : '<p class="dim" style="text-align:center">No other coaches have built a team yet — you could be the first!</p>'}
+        <div class="btncol"><button class="ghost" id="gm-close">Close</button></div>`;
+      modal.querySelectorAll('[data-opp]').forEach(b => b.addEventListener('click', () => {
+        const t = teams[+b.dataset.opp];
+        opp = { name: 'Coach ' + t.name, rating: t.rating };
+        betView();
+      }));
+      closeBtn();
+    }).catch(() => {
+      modal.innerHTML = '<p class="dim" style="text-align:center">Could not reach the server — try again in a moment.</p><div class="btncol"><button class="ghost" id="gm-close">Close</button></div>';
+      closeBtn();
+    });
+  }
+  function betView(){
+    const p = winProb(teamRating(), opp.rating), odds = oddsFor(p), fee = gameFee();
+    modal.innerHTML = `
+      <h2 style="text-align:center">🆚 ${esc(opp.name)}</h2>
+      <div class="statrow"><span>Your rating vs theirs</span><b>${teamRating()} vs ${opp.rating}</b></div>
+      <div class="statrow"><span>Chance you win</span><b>${Math.round(p * 100)}%</b></div>
+      <div class="statrow"><span>Entry fee</span><b>${$$(fee)}</b></div>
+      <div class="statrow"><span>Prize if you win</span><b style="color:var(--good)">${$$(gamePrize(p))}</b></div>
+      <div class="statrow"><span>Bet on yourself</span><b>pays ×${odds}</b></div>
+      <p class="dim">Optional: bet extra cash on your team (max ${$$(maxBet())} — suffixes like 5m work).</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+        <input id="gm-stake" type="text" inputmode="numeric" placeholder="no bet" style="flex:1;min-width:110px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:10px 12px;font-size:1rem">
+        <button class="ghost mini" data-pc="25">25%</button><button class="ghost mini" data-pc="50">50%</button><button class="ghost mini" data-pc="100">MAX</button>
+      </div>
+      <div class="btncol"><button class="primary" id="gm-play">🏟️ Tip-off!</button><button class="ghost" id="gm-back">Back</button></div>`;
+    modal.querySelectorAll('[data-pc]').forEach(b => b.addEventListener('click', () => {
+      modal.querySelector('#gm-stake').value = String(Math.floor(maxBet() * (+b.dataset.pc / 100)));
+    }));
+    modal.querySelector('#gm-back').addEventListener('click', pickView);
+    modal.querySelector('#gm-play').addEventListener('click', () => {
+      const raw = modal.querySelector('#gm-stake').value.trim();
+      const stake = raw ? Math.floor(parseAmount(raw) || 0) : 0;
+      if (raw && stake < MIN_BET){ alert(`Minimum bet is ${$$(MIN_BET)} — or clear the box to play without betting.`); return; }
+      if (stake > maxBet()){ alert(`Max bet right now is ${$$(maxBet())}.`); return; }
+      if (W().cash < fee + stake){ alert(`You need ${$$(fee + stake)} in your current world (fee + bet).`); return; }
+      W().cash -= fee + stake; save(); paint();
+      gameView(p, odds, stake);
+    });
+  }
+  function gameView(p, odds, stake){
+    const res = simGame(teamRating(), opp.rating, opp.name);
+    modal.innerHTML = `
+      <h2 style="text-align:center">🏟️ vs ${esc(opp.name)}</h2>
+      <div id="gm-log" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:10px;min-height:130px;font-size:.85rem"></div>
+      <div id="gm-result" style="text-align:center;margin-top:10px"></div>
+      <div class="btncol" id="gm-done" style="display:none"><button class="primary" id="gm-again">Play again</button><button class="ghost" id="gm-exit">Done</button></div>`;
+    const logEl = modal.querySelector('#gm-log');
+    res.log.forEach((line, i) => setTimeout(() => {
+      if (!document.body.contains(modal)) return; // closed early
+      logEl.innerHTML += (i ? '<br>' : '') + esc(line);
+      if (i === res.log.length - 1){
+        const folBefore = S.followers || 0;
+        const payout = settleGame(res.win, p, stake, odds, opp.rating);
+        const folGain = (S.followers || 0) - folBefore;
+        modal.querySelector('#gm-result').innerHTML = res.win
+          ? `<h3 style="color:var(--good);margin:0">🎉 You win ${$$(payout)}!</h3><p class="dim" style="margin:4px 0">+${fmt(folGain)} followers 📱${stake ? ` · your ×${odds} bet paid off` : ''}</p>`
+          : `<h3 style="color:var(--bad);margin:0">😬 You lose.</h3><p class="dim" style="margin:4px 0">The fee${stake ? ' and your bet are' : ' is'} gone. Get 'em next time, Coach.</p>`;
+        modal.querySelector('#gm-done').style.display = '';
+        modal.querySelector('#gm-again').addEventListener('click', pickView);
+        modal.querySelector('#gm-exit').addEventListener('click', () => { ov.remove(); renderTeam(); });
+      }
+    }, 650 * (i + 1)));
+  }
+  pickView();
+  document.body.appendChild(ov);
+}
+/* ----------------------- classic mode (original game) -------------------- */
+function applyClassic(){
+  const on = !!(S && S.classic);
+  const teamTab = document.querySelector('[data-tab="team"]');
+  const showingTeam = el('tab-team').style.display !== 'none';
+  teamTab.style.display = on ? 'none' : '';
+  document.querySelectorAll('.coach-only').forEach(x => { x.style.display = on ? 'none' : ''; });
+  const cb = el('classicbtn');
+  if (cb) cb.textContent = on ? '🧢 Coach mode' : '🕹️ Classic mode';
+  if (on && showingTeam) document.querySelector('[data-tab="empire"]').click();
+}
+function toggleClassic(){
+  el('acctdrop').style.display = 'none';
+  if (!S) return;
+  S.classic = !S.classic;
+  save(); applyClassic();
+  alert(S.classic
+    ? '🕹️ Classic mode on — the game is back to the original. Your team and followers are safe; switch back anytime from this menu.'
+    : '🧢 Coach mode on — welcome back, Coach!');
+}
+
 function renderLeaders(){
   el('lbnote').textContent = (serverOn && lbOnline)
     ? 'Top 5 players across the whole game, every device.'
@@ -1921,6 +2375,8 @@ function renderLeaders(){
   renderBoard('lb-session', rows.slice().sort((a, b) => b.session - a.session).slice(0, TOP), r => fmtTime(r.session));
   renderBoard('lb-legends', rows.slice().sort((a, b) => b.legends - a.legends).slice(0, TOP), r => `${(r.legends || 0).toLocaleString()} 🏅`);
   renderBoard('lb-wins', rows.slice().sort((a, b) => b.wins - a.wins).slice(0, TOP), r => `${(r.wins || 0).toLocaleString()} ⚔️`);
+  renderBoard('lb-teamwins', rows.slice().sort((a, b) => b.tw - a.tw).slice(0, TOP), r => `${(r.tw || 0).toLocaleString()} 🏆`);
+  renderBoard('lb-followers', rows.slice().sort((a, b) => b.fol - a.fol).slice(0, TOP), r => `${fmt(r.fol || 0)} 📱`);
 }
 
 function createAccount(name){
@@ -1944,6 +2400,7 @@ function startGame(name, remoteSave){
   collectOffline();
   el('buymode').textContent = 'Buy ' + BUY_MODES[S.buyIdx % BUY_MODES.length].lbl;
   updateAcctUI();
+  applyClassic();
   rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
   save();
 }
@@ -2105,6 +2562,14 @@ el('buymode').addEventListener('click', () => {
 el('prestige').addEventListener('click', doPrestige);
 el('packbtn').addEventListener('click', () => { const res = openPack(); if (res){ revealPet(res); renderPets(); } });
 el('battlebtn').addEventListener('click', battleModal);
+el('playai').addEventListener('click', () => gameModal('ai'));
+el('playpvp').addEventListener('click', () => gameModal('pvp'));
+el('sbrefresh').addEventListener('click', () => { makeSbBoard(); renderSb(); });
+el('postbtn').addEventListener('click', () => {
+  const r = makePost();
+  if (r){ alert(r.text + '\n\n+' + $$(r.pay) + '!'); renderTeam(); }
+});
+el('classicbtn').addEventListener('click', toggleClassic);
 el('petgrid').addEventListener('click', e => { const b = e.target.closest('[data-sell]'); if (!b) return; petSell(b.dataset.sell, 1); renderPets(); });
 el('selldupes').addEventListener('click', () => {
   if (!S) return;
