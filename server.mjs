@@ -11,12 +11,12 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Only these accounts may ever open the admin panel — even with the right
 // passcode. They are also exempt from being blocked. Matched exactly.
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
-const VERSION = 9;   // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 10;  // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, trades: [], tradeSeq: 0, blocked: [] };
+let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, trades: [], tradeSeq: 0, blocked: [], dms: {}, dmSeq: 0, chatMuted: [] };
 const petKeyOk = k => typeof k === 'string' && /^[a-z]+:(\d+:)?(cash|rings)$/.test(k);
 function cleanPets(o){ const out = {}; if (o && typeof o === 'object') for (const k in o){ const n = Math.floor(num(o[k])); if (n > 0 && petKeyOk(k)) out[k] = n; } return out; }
 function tradesFor(name){ return { incoming: db.trades.filter(t => t.to === name), outgoing: db.trades.filter(t => t.from === name) }; }
@@ -29,6 +29,7 @@ function activeAnnouncement(){
 }
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch {}
 db.blocked = (db.blocked || []).filter(n => !OWNER_ACCOUNTS.includes(n)); // owner accounts are never blocked
+db.chatMuted = (db.chatMuted || []).filter(n => !OWNER_ACCOUNTS.includes(n)); // ...or muted
 
 let saveTimer = null;
 function persist(){
@@ -80,6 +81,10 @@ function auth(b){ // -> account or null
   const a = name && db.accounts[name];
   return (a && typeof b.pin === 'string' && a.pin === hash(b.pin)) ? { name, a } : null;
 }
+// DM thread key: names may contain any interior character, so a JSON array of
+// the sorted pair is the only collision-proof key (JSON.parse recovers both).
+const dmKey = (a, b) => JSON.stringify([a, b].sort());
+const lastChatAt = new Map(); // name -> ms of last send; in-memory flood guard
 function statsOf(save){
   if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0, battleWins: 0, teamWins: 0, followers: 0 };
   return {
@@ -153,6 +158,15 @@ const server = http.createServer(async (req, res) => {
     delete db.accounts[got.name];
     if (db.commands[got.name]){ db.commands[to] = db.commands[got.name]; delete db.commands[got.name]; }
     db.admins = db.admins.map(x => x === got.name ? to : x);
+    db.chatMuted = (db.chatMuted || []).map(x => x === got.name ? to : x);
+    for (const k of Object.keys(db.dms || {})){ // carry DM threads to the new name
+      let pair; try { pair = JSON.parse(k); } catch { continue; }
+      if (!pair.includes(got.name)) continue;
+      const msgs = db.dms[k];
+      msgs.forEach(m => { if (m.from === got.name) m.from = to; });
+      delete db.dms[k];
+      db.dms[dmKey(pair[0] === got.name ? to : pair[0], pair[1] === got.name ? to : pair[1])] = msgs;
+    }
     persist();
     return send(res, 200, { ok: true });
   }
@@ -188,6 +202,74 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
 
+  // chat: send a private DM to another account (accounts only — PIN auth)
+  if (url.pathname === '/api/chat/send' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    if ((db.chatMuted || []).includes(got.name)) return send(res, 403, { error: 'You are muted.' });
+    const to = cleanName(b && b.to);
+    if (!to || !db.accounts[to]) return send(res, 400, { error: 'Unknown player.' });
+    if (to === got.name) return send(res, 400, { error: "You can't message yourself." });
+    const text = (typeof b.text === 'string' ? b.text : '').trim().slice(0, 300);
+    if (!text) return send(res, 400, { error: 'Type a message first.' });
+    if (Date.now() - (lastChatAt.get(got.name) || 0) < 1000) return send(res, 429, { error: 'Slow down.' });
+    lastChatAt.set(got.name, Date.now());
+    const k = dmKey(got.name, to);
+    const m = { id: ++db.dmSeq, from: got.name, text, at: Date.now() };
+    (db.dms[k] = db.dms[k] || []).push(m);
+    if (db.dms[k].length > 200) db.dms[k] = db.dms[k].slice(-200);
+    persist();
+    return send(res, 200, { ok: true, id: m.id });
+  }
+
+  // chat: all my DM threads
+  if (url.pathname === '/api/chat/fetch' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    const threads = {};
+    for (const [k, msgs] of Object.entries(db.dms || {})){
+      let pair; try { pair = JSON.parse(k); } catch { continue; }
+      if (pair[0] === got.name) threads[pair[1]] = msgs;
+      else if (pair[1] === got.name) threads[pair[0]] = msgs;
+    }
+    return send(res, 200, { threads, muted: (db.chatMuted || []).includes(got.name) });
+  }
+
+  // owner: recent messages across every thread, for moderation
+  if (url.pathname === '/api/chat/all' && req.method === 'GET'){
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
+    const messages = [];
+    for (const [k, msgs] of Object.entries(db.dms || {})){
+      let pair; try { pair = JSON.parse(k); } catch { continue; }
+      for (const m of msgs) messages.push({ ...m, to: m.from === pair[0] ? pair[1] : pair[0] });
+    }
+    messages.sort((x, y) => y.at - x.at);
+    return send(res, 200, { messages: messages.slice(0, 100), muted: db.chatMuted || [] });
+  }
+
+  // owner: delete any chat message by id
+  if (url.pathname === '/api/chat/delete' && req.method === 'POST'){
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
+    const b = await readBody(req);
+    const id = num(b && b.id);
+    for (const k of Object.keys(db.dms || {})){
+      const i = db.dms[k].findIndex(m => m.id === id);
+      if (i >= 0){
+        db.dms[k].splice(i, 1);
+        if (!db.dms[k].length) delete db.dms[k];
+        persist();
+        return send(res, 200, { ok: true, deleted: true });
+      }
+    }
+    return send(res, 404, { error: 'Message not found.' });
+  }
+
   // public: global leaderboard data
   if (url.pathname === '/api/leaderboard' && req.method === 'GET'){
     const rows = Object.entries(db.accounts).map(([name, a]) => {
@@ -207,7 +289,7 @@ const server = http.createServer(async (req, res) => {
       ...statsOf(a.save), lastSeen: a.lastSeen,
       pending: (db.commands[name] || []).reduce((t, c) => t + num(c.give), 0), // queued gives not yet collected
     };
-    return send(res, 200, { players, admins: db.admins, blocked: db.blocked || [], announcement: db.announcement });
+    return send(res, 200, { players, admins: db.admins, blocked: db.blocked || [], chatMuted: db.chatMuted || [], announcement: db.announcement });
   }
 
   // owner: set or clear the global announcement everyone sees on login
@@ -235,6 +317,10 @@ const server = http.createServer(async (req, res) => {
       delete db.accounts[name];
       delete db.commands[name];
       db.admins = db.admins.filter(x => x !== name);
+      db.chatMuted = (db.chatMuted || []).filter(x => x !== name);
+      for (const k of Object.keys(db.dms || {})){ // drop their DM threads
+        try { if (JSON.parse(k).includes(name)) delete db.dms[k]; } catch {}
+      }
       persist();
       return send(res, 200, { ok: true, deleted: true });
     }
@@ -248,6 +334,8 @@ const server = http.createServer(async (req, res) => {
       db.blocked = b.cmd.block ? [...new Set([...(db.blocked || []), name])] : (db.blocked || []).filter(x => x !== name);
       if (b.cmd.block) db.admins = db.admins.filter(x => x !== name); // blocking also strips admin
     }
+    if (typeof b.cmd.chatmute === 'boolean' && !OWNER_ACCOUNTS.includes(name)) // ...or muted from chat
+      db.chatMuted = b.cmd.chatmute ? [...new Set([...(db.chatMuted || []), name])] : (db.chatMuted || []).filter(x => x !== name);
     // set leaderboard-rankable stats to chosen values
     if (b.cmd.set && typeof b.cmd.set === 'object'){
       cmd.set = {};

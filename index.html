@@ -183,6 +183,17 @@ main{padding:14px 14px 30px}
 .msg .who{font-weight:700;font-size:.85rem}
 .msg .body{font-size:.9rem;white-space:pre-wrap;word-break:break-word;margin-top:2px}
 .posbadge{display:inline-block;min-width:26px;text-align:center;font-size:.62rem;font-weight:800;letter-spacing:.4px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 4px;color:var(--gold)}
+.chatrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px dashed var(--line);cursor:pointer}
+.chatrow:hover{background:var(--panel2)}
+.cdot{width:10px;height:10px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);flex:0 0 auto}
+.cdot.on{background:var(--good);border-color:var(--good);box-shadow:0 0 8px var(--good)}
+.chatbadge{min-width:18px;text-align:center;font-size:.68rem;font-weight:800;background:var(--accent);color:#111;border-radius:9px;padding:1px 5px}
+.chatlog{max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px 0}
+.bubble{max-width:78%;align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:8px 11px;font-size:.9rem;white-space:pre-wrap;word-break:break-word}
+.bubble.mine{align-self:flex-end;background:color-mix(in srgb,var(--accent) 22%,var(--panel2));border-color:var(--accent)}
+.bubble .bwhen{display:block;font-size:.62rem;color:var(--dim);margin-top:3px}
+.chatbar{display:flex;gap:8px;margin-top:10px}
+.chatbar input{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:10px 12px;font-size:1rem}
 @media(max-width:520px){ .tapbtn{width:72px;height:72px;font-size:2.1rem} .cash{font-size:1.55rem} }
 </style>
 </head>
@@ -221,6 +232,7 @@ main{padding:14px 14px 30px}
     <button class="tab" data-tab="leaders">🏅 Leaderboard</button>
     <button class="tab" data-tab="pets">🐾 Pets</button>
     <button class="tab" data-tab="team">🧢 Coach</button>
+    <button class="tab" data-tab="chat">💬 Chat<span class="pip" id="chat-pip" style="display:none"></span></button>
     <button class="tab" data-tab="stats">Stats</button>
   </div>
 
@@ -368,6 +380,10 @@ main{padding:14px 14px 30px}
         <button class="danger" id="hardreset">Reset everything</button>
       </div>
       <p class="dim" style="text-align:center" id="savenote"></p>
+    </section>
+
+    <section id="tab-chat" style="display:none">
+      <div class="panel"><div id="chatwrap"></div></div>
     </section>
   </main>
 </div>
@@ -564,14 +580,14 @@ function freshState(){
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
            playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0, pets:{},
            goat:false, goatSeen:false, legends:0, battleWins:0, battleLosses:0,
-           roster:[], teamWins:0, teamLosses:0, followers:0, lifestyle:[], lastPost:0, classic:false };
+           roster:[], teamWins:0, teamLosses:0, followers:0, lifestyle:[], lastPost:0, classic:false, chatRead:{} };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses','roster','teamWins','teamLosses','followers','lifestyle','lastPost','classic'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses','roster','teamWins','teamLosses','followers','lifestyle','lastPost','classic','chatRead'])
         if (s[k] !== undefined) d[k] = s[k];
       d.roster = Array.isArray(d.roster) ? [...new Set(d.roster.filter(i => Number.isInteger(i) && PLAYER_POOL[i]))] : [];
       d.lifestyle = Array.isArray(d.lifestyle) ? [...new Set(d.lifestyle.filter(i => Number.isInteger(i) && LIFESTYLE_ITEMS[i]))] : [];
@@ -1165,10 +1181,11 @@ function paint(){
 /* =============================== tabs ==================================== */
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-  for (const sec of ['empire','upgrades','prestige','leaders','pets','team','stats'])
+  for (const sec of ['empire','upgrades','prestige','leaders','pets','team','stats','chat'])
     el('tab-' + sec).style.display = t.dataset.tab === sec ? '' : 'none';
   if (t.dataset.tab === 'pets' && S) renderPets();
   if (t.dataset.tab === 'team' && S) renderTeam();
+  if (t.dataset.tab === 'chat'){ chatOpen = null; renderChat(); chatFetch(); }
   if (t.dataset.tab === 'leaders' && S){
     renderLeaders();
     if (serverOn) api('/api/leaderboard').then(r => { lbOnline = r.rows; renderLeaders(); }).catch(() => {});
@@ -1405,6 +1422,112 @@ function showNotice(icon, title, bodyHtml){
   ov.querySelector('button').addEventListener('click', () => ov.remove());
   document.body.appendChild(ov);
 }
+/* ------------------------- chat: presence + DMs -------------------------- */
+// Presence comes from lbOnline (lastSeen refreshed by the 30s leaderboard
+// poll); threads come from /api/chat/fetch. Unread state lives client-side
+// in S.chatRead = { otherName: lastReadTimestamp }.
+let chatThreads = {}, chatMuted = false, chatOpen = null;
+const CHAT_ONLINE_MS = 90000; // lastSeen fresher than this = "playing now"
+function chatUnread(other){
+  const seen = (S && S.chatRead && S.chatRead[other]) || 0;
+  return (chatThreads[other] || []).filter(m => m.from !== player && m.at > seen).length;
+}
+function updateChatPip(){
+  const any = Object.keys(chatThreads).some(o => o !== chatOpen && chatUnread(o) > 0);
+  el('chat-pip').style.display = any ? '' : 'none';
+}
+async function chatFetch(){
+  if (!serverOn || !onlineCreds) return;
+  try {
+    const r = await api('/api/chat/fetch', { method: 'POST', body: JSON.stringify({ ...onlineCreds }) });
+    const grew = JSON.stringify(Object.keys(r.threads).map(k => [k, r.threads[k].length]))
+              !== JSON.stringify(Object.keys(chatThreads).map(k => [k, chatThreads[k].length]));
+    chatThreads = r.threads || {};
+    chatMuted = !!r.muted;
+    updateChatPip();
+    if (grew && el('tab-chat').style.display !== 'none'){
+      const inp = el('chat-input');
+      const draft = inp ? inp.value : null; // don't eat a half-typed message
+      renderChat();
+      const inp2 = el('chat-input');
+      if (inp2 && draft) inp2.value = draft;
+    }
+  } catch {}
+}
+function renderChat(){
+  if (!el('chatwrap')) return;
+  if (chatOpen) renderConvo(chatOpen);
+  else renderChatList();
+}
+function renderChatList(){
+  const rows = (lbOnline || []).filter(r => r.name !== player).map(r => {
+    const msgs = chatThreads[r.name] || [];
+    const last = msgs[msgs.length - 1];
+    return { name: r.name, lastSeen: r.lastSeen || 0, online: Date.now() - (r.lastSeen || 0) < CHAT_ONLINE_MS,
+             last, lastAt: last ? last.at : 0, unread: chatUnread(r.name) };
+  }).sort((a, b) => (b.online - a.online) || (b.lastAt - a.lastAt) || (b.lastSeen - a.lastSeen));
+  el('chatwrap').innerHTML = `
+    <h3 style="margin-top:0">💬 Players</h3>
+    ${onlineCreds ? '' : '<p class="dim">You\'re browsing as a guest — create an account to send messages.</p>'}
+    ${chatMuted ? '<p class="dim">🔇 You\'ve been muted by the owner — you can read chats but not send.</p>' : ''}
+    ${rows.map(r => `
+      <div class="chatrow" data-dm="${esc(r.name)}">
+        <span class="cdot${r.online ? ' on' : ''}"></span>
+        <span style="flex:1;min-width:0">
+          <b>${esc(r.name)}</b> <span class="dim" style="font-size:.72rem">${r.online ? 'playing now' : timeAgo(r.lastSeen)}</span><br>
+          <span class="dim" style="font-size:.78rem;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.last ? esc((r.last.from === player ? 'You: ' : '') + r.last.text).slice(0, 60) : 'Say hi 👋'}</span>
+        </span>
+        ${r.unread ? `<span class="chatbadge">${r.unread}</span>` : ''}
+      </div>`).join('') || '<p class="dim">No other players yet — invite someone!</p>'}`;
+  el('chatwrap').querySelectorAll('[data-dm]').forEach(d => d.addEventListener('click', () => {
+    if (!onlineCreds){ showNotice('💬', 'Accounts only', 'Chatting needs an account, so everyone knows who\'s talking. Make one from the start screen (log out first) — it\'s free!'); return; }
+    chatOpen = d.dataset.dm;
+    renderChat();
+  }));
+}
+function renderConvo(other){
+  const row = (lbOnline || []).find(r => r.name === other);
+  const online = row && Date.now() - (row.lastSeen || 0) < CHAT_ONLINE_MS;
+  const msgs = chatThreads[other] || [];
+  el('chatwrap').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="ghost mini" id="chat-back">← Back</button>
+      <span class="cdot${online ? ' on' : ''}"></span>
+      <b>${esc(other)}</b>
+      <span class="dim" style="font-size:.72rem">${online ? 'playing now' : (row ? timeAgo(row.lastSeen) : '')}</span>
+    </div>
+    <div class="chatlog" id="chatlog">
+      ${msgs.map(m => `<div class="bubble${m.from === player ? ' mine' : ''}">${esc(m.text)}<span class="bwhen">${timeAgo(m.at)}</span></div>`).join('')
+        || '<p class="dim" style="text-align:center">No messages yet — start the conversation!</p>'}
+    </div>
+    ${chatMuted ? '<p class="dim" style="text-align:center">🔇 You\'ve been muted by the owner — you can read but not send.</p>' : ''}
+    <div class="chatbar">
+      <input id="chat-input" maxlength="300" placeholder="Message ${esc(other)}…"${chatMuted ? ' disabled' : ''}>
+      <button class="primary" id="chat-send" style="width:auto;padding:10px 16px"${chatMuted ? ' disabled' : ''}>Send</button>
+    </div>
+    <p class="fineprint" id="chat-err" style="color:var(--bad)"></p>`;
+  const log = el('chatlog');
+  log.scrollTop = log.scrollHeight;
+  if (S){ S.chatRead = S.chatRead || {}; S.chatRead[other] = Date.now(); save(); }
+  updateChatPip();
+  el('chat-back').addEventListener('click', () => { chatOpen = null; renderChat(); });
+  const doSend = () => { const t = el('chat-input').value.trim(); if (t) chatSend(other, t); };
+  el('chat-send').addEventListener('click', doSend);
+  el('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+  el('chat-input').focus();
+}
+async function chatSend(other, text){
+  try {
+    const r = await api('/api/chat/send', { method: 'POST', body: JSON.stringify({ ...onlineCreds, to: other, text }) });
+    (chatThreads[other] = chatThreads[other] || []).push({ id: r.id, from: player, text, at: Date.now() });
+    renderChat();
+  } catch (e) {
+    if (e.status === 403){ chatMuted = true; renderChat(); return; }
+    const err = el('chat-err');
+    if (err) err.textContent = e.status === 429 ? 'Whoa, slow down a second!' : 'Could not send — check your connection.';
+  }
+}
+setInterval(() => { if (el('tab-chat').style.display !== 'none') chatFetch(); }, 6000);
 async function syncTick(){ // push my save to the server, pick up commands
   if (serverOn){
     try {
@@ -1426,6 +1549,7 @@ async function syncTick(){ // push my save to the server, pick up commands
     applyServerFlags(r);
     if (r.trades) myTrades = r.trades;
   } catch {}
+  chatFetch(); // keep the 💬 unread dot fresh even with the chat tab closed
 }
 checkServer().then(syncTick);
 setInterval(syncTick, 30000);
@@ -1842,6 +1966,34 @@ function parseAmount(s){
   }
   return isFinite(+s) ? +s : null;
 }
+function chatModPanel(key){ // owner: review + delete recent player DMs
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal'; modal.style.textAlign = 'left'; modal.style.maxWidth = '480px';
+  ov.appendChild(modal);
+  async function render(){
+    modal.innerHTML = '<h2 style="text-align:center">💬 Chat moderation</h2><p class="dim" style="text-align:center">Loading…</p>';
+    let data = { messages: [] };
+    try { data = await api('/api/chat/all', { headers: admHdr(key) }); } catch {}
+    modal.innerHTML = `
+      <h2 style="text-align:center">💬 Chat moderation</h2>
+      <p class="dim" style="text-align:center">The ${data.messages.length} most recent player messages, newest first. Deleting removes a message for both players.</p>
+      ${data.messages.map((m, i) => `
+        <div class="msg"><div class="msg-head"><span class="who">${esc(m.from)} → ${esc(m.to)} <span class="dim">· ${timeAgo(m.at)}</span></span>
+          <button class="ghost mini" data-del="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></div>
+        <div class="body">${esc(m.text)}</div></div>`).join('') || '<p class="dim">No messages yet.</p>'}
+      <div class="btncol"><button class="ghost" id="cm-refresh">Refresh</button><button class="ghost" id="cm-close">Close</button></div>`;
+    modal.querySelector('#cm-refresh').addEventListener('click', render);
+    modal.querySelector('#cm-close').addEventListener('click', () => ov.remove());
+    modal.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      const m = data.messages[+b.dataset.del];
+      if (!m || !confirm(`Delete this message from ${m.from}? Both players lose it.`)) return;
+      try { await api('/api/chat/delete', { method: 'POST', headers: admHdr(key), body: JSON.stringify({ id: m.id }) }); } catch { alert('Could not reach the server.'); }
+      render();
+    }));
+  }
+  render();
+  document.body.appendChild(ov);
+}
 function setStatsModal(key, name, cur, after){
   const fields = [
     ['all', 'Money earned (all-time)'], ['peakRate', 'Peak $/sec'], ['rings', 'Rings'],
@@ -1922,9 +2074,9 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     const names = Object.keys(data.players || {}).sort((a, b) => (data.players[b].lastSeen || 0) - (data.players[a].lastSeen || 0));
     const visible = showAll ? names : names.slice(0, 5);
     const rows = visible.map((n, i) => {
-      const p = data.players[n], blk = (data.blocked || []).includes(n);
-      return `<div class="statrow"><span>${esc(n)}${blk ? ' <span style="color:var(--bad)">⛔</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
-        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-set="${i}">📊 Stats</button><button class="ghost mini" data-blk="${i}"${blk ? '' : ' style="border-color:var(--bad);color:var(--bad)"'}>${blk ? 'Unblock' : 'Block admin'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
+      const p = data.players[n], blk = (data.blocked || []).includes(n), mut = (data.chatMuted || []).includes(n);
+      return `<div class="statrow"><span>${esc(n)}${blk ? ' <span style="color:var(--bad)">⛔</span>' : ''}${mut ? ' <span style="color:var(--bad)">🔇</span>' : ''} <span class="dim">${timeAgo(p.lastSeen)}</span></span>
+        <span><b>${$$(p.cash || 0)}</b>${p.pending ? ` <span class="dim">+${$$(p.pending)} incoming</span>` : ''}<button class="ghost mini" data-g="${i}">💵 Give…</button><button class="ghost mini" data-set="${i}">📊 Stats</button><button class="ghost mini" data-blk="${i}"${blk ? '' : ' style="border-color:var(--bad);color:var(--bad)"'}>${blk ? 'Unblock' : 'Block admin'}</button><button class="ghost mini" data-mute="${i}"${mut ? '' : ' style="border-color:var(--bad);color:var(--bad)"'}>${mut ? 'Unmute chat' : '🔇 Mute chat'}</button><button class="ghost mini" data-r="${i}" style="border-color:var(--bad);color:var(--bad)">Reset</button><button class="ghost mini" data-d="${i}" style="border-color:var(--bad);color:var(--bad)">Delete</button></span></div>`;
     }).join('') + (names.length > visible.length
       ? `<button class="ghost" id="adm-showall" style="width:100%;margin-top:10px">Show all ${names.length} accounts</button>` : '')
       || '<p class="dim">No players yet — accounts show up here after someone plays while online.</p>';
@@ -1937,6 +2089,8 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
       </div>
       ${announceHtml()}
       ${inboxHtml()}
+      <h3 style="margin-top:18px">💬 Chat moderation</h3>
+      <button class="ghost" id="adm-chat" style="width:100%">Review recent player messages…</button>
       <h3 style="margin-top:18px">All accounts (${names.length})</h3>${rows}
       <p class="dim">Changes reach other devices within ~30 seconds while their game is open.</p>
       <div class="btncol"><button class="ghost" id="adm-refresh">Refresh list</button><button class="ghost" id="adm-close">Close</button></div>`;
@@ -1984,6 +2138,12 @@ function adminPanelServer(key, data){ // owner view over the whole game, all dev
     modal.querySelectorAll('[data-blk]').forEach(b => b.addEventListener('click', async () => {
       const n = names[+b.dataset.blk];
       try { await post(n, { block: !(data.blocked || []).includes(n) }); } catch { alert('Could not reach the server.'); }
+      refresh();
+    }));
+    modal.querySelector('#adm-chat').addEventListener('click', () => chatModPanel(key));
+    modal.querySelectorAll('[data-mute]').forEach(b => b.addEventListener('click', async () => {
+      const n = names[+b.dataset.mute];
+      try { await post(n, { chatmute: !(data.chatMuted || []).includes(n) }); } catch { alert('Could not reach the server.'); }
       refresh();
     }));
     modal.querySelectorAll('[data-r]').forEach(b => b.addEventListener('click', async () => {
@@ -2402,6 +2562,7 @@ function startGame(name, remoteSave){
   updateAcctUI();
   applyClassic();
   rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+  chatThreads = {}; chatMuted = false; chatOpen = null; chatFetch(); // fresh chat state for this login
   save();
 }
 
