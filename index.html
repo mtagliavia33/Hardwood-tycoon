@@ -379,6 +379,7 @@ main{padding:14px 14px 30px}
         <h3>Danger zone</h3>
         <p class="dim">Wipes the whole empire — every world, rings included.</p>
         <button class="danger" id="hardreset">Reset everything</button>
+        <button class="danger" id="deleteacct" style="display:none;margin-top:8px">🗑️ Delete my account forever</button>
       </div>
       <p class="dim" style="text-align:center" id="savenote"></p>
     </section>
@@ -1286,6 +1287,7 @@ function updateAcctUI(){
         : `Playing as ${player}. Your empire auto-saves to this browser.`)
     : 'Playing as guest — progress is lost when you close the tab.';
   el('acctsave').style.display = player ? 'none' : '';
+  el('deleteacct').style.display = player ? '' : 'none'; // guests have no account to delete
   el('savenote').textContent = player
     ? (onlineCreds
         ? "Saved online every ~30 seconds. Every world keeps earning while you're away (up to 8h, at 50% rate)."
@@ -2820,6 +2822,29 @@ el('hardreset').addEventListener('click', () => {
   const keptPets = S.pets;
   S = freshState(); S.pets = keptPets || {};
   save(); rebuildWorlds(); rebuildBiz(); rebuildUpgrades(); paint();
+});
+el('deleteacct').addEventListener('click', async () => {
+  if (!S || !player) return;
+  if (!confirm(`Delete the account "${player}" FOREVER? Money, rings, pets, team, followers, chats and every leaderboard spot — all gone, everywhere, for good. This cannot be undone.`)) return;
+  const typed = (prompt(`Type your account name (${player}) to confirm:`) || '').trim();
+  if (typed !== player){ if (typed) alert("That didn't match — your account is safe."); return; }
+  if (onlineCreds && serverOn){
+    try {
+      await api('/api/account/delete', { method: 'POST', body: JSON.stringify({ ...onlineCreds }) });
+    } catch (e) {
+      alert(e.status === 403 ? "The owner account can't be deleted from in the game." : 'Could not reach the server — your account was NOT deleted. Try again in a moment.');
+      return;
+    }
+  }
+  // local cleanup — and no final save-push, which would re-create the record
+  forgetSession(player);
+  try { localStorage.removeItem(acctKey(player)); } catch {}
+  saveAccounts(accounts().filter(x => x !== player));
+  const ad = adminData();
+  if ((ad.admins || []).includes(player)){ ad.admins = ad.admins.filter(x => x !== player); saveAdmin(ad); }
+  S = null; player = null; onlineCreds = null;
+  alert('Your account has been deleted. Thanks for playing!');
+  showStart();
 });
 el('acctsave').addEventListener('click', async () => {
   if (!S || player) return;

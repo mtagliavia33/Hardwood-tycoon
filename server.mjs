@@ -11,7 +11,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Only these accounts may ever open the admin panel — even with the right
 // passcode. They are also exempt from being blocked. Matched exactly.
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
-const VERSION = 11;  // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 12;  // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
@@ -113,6 +113,16 @@ function auth(b){ // -> account or null
 // the sorted pair is the only collision-proof key (JSON.parse recovers both).
 const dmKey = (a, b) => JSON.stringify([a, b].sort());
 const lastChatAt = new Map(); // name -> ms of last send; in-memory flood guard
+function removeAccount(name){ // full cleanup, used by owner deletes and self-deletes
+  delete db.accounts[name];
+  delete db.commands[name];
+  db.admins = db.admins.filter(x => x !== name);
+  db.blocked = (db.blocked || []).filter(x => x !== name);
+  db.chatMuted = (db.chatMuted || []).filter(x => x !== name);
+  for (const k of Object.keys(db.dms || {})){ // drop their DM threads
+    try { if (JSON.parse(k).includes(name)) delete db.dms[k]; } catch {}
+  }
+}
 function statsOf(save){
   if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0, battleWins: 0, teamWins: 0, followers: 0 };
   return {
@@ -199,6 +209,17 @@ const server = http.createServer(async (req, res) => {
     }
     persist();
     return send(res, 200, { ok: true });
+  }
+
+  // delete your own account (auth by pin — you can only delete yourself)
+  if (url.pathname === '/api/account/delete' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    if (OWNER_ACCOUNTS.includes(got.name)) return send(res, 403, { error: "The owner account can't be deleted from in the game." });
+    removeAccount(got.name);
+    persist();
+    return send(res, 200, { ok: true, deleted: true });
   }
 
   // anyone can message the owner
@@ -344,13 +365,7 @@ const server = http.createServer(async (req, res) => {
     const name = cleanName(b && b.name);
     if (!name || !db.accounts[name] || !b.cmd || typeof b.cmd !== 'object') return send(res, 400, { error: 'unknown account or empty cmd' });
     if (b.cmd.delete === true){ // remove the account entirely
-      delete db.accounts[name];
-      delete db.commands[name];
-      db.admins = db.admins.filter(x => x !== name);
-      db.chatMuted = (db.chatMuted || []).filter(x => x !== name);
-      for (const k of Object.keys(db.dms || {})){ // drop their DM threads
-        try { if (JSON.parse(k).includes(name)) delete db.dms[k]; } catch {}
-      }
+      removeAccount(name);
       persist();
       return send(res, 200, { ok: true, deleted: true });
     }
