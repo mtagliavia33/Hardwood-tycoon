@@ -11,7 +11,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Only these accounts may ever open the admin panel — even with the right
 // passcode. They are also exempt from being blocked. Matched exactly.
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
-const VERSION = 10;  // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 11;  // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
 
@@ -30,6 +30,34 @@ function activeAnnouncement(){
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) }; } catch {}
 db.blocked = (db.blocked || []).filter(n => !OWNER_ACCOUNTS.includes(n)); // owner accounts are never blocked
 db.chatMuted = (db.chatMuted || []).filter(n => !OWNER_ACCOUNTS.includes(n)); // ...or muted
+
+// Username filter: family game — no swears or inappropriate names, including
+// leetspeak (sh1t) and hidden fragments (xX_badword_Xx). FRAGS match anywhere
+// in the letters-only name; WORDS only as whole tokens (so "assist" is fine).
+const LEET = { '0':'o','1':'i','3':'e','4':'a','5':'s','7':'t','8':'b','@':'a','$':'s','!':'i','+':'t' };
+const BAD_FRAGS = ['fuck','shit','bitch','cunt','nigg','fag','whore','slut','penis','vagina','porn','boner','dildo','rape','nazi','hitler','pussy','asshole','dick','sexy','tits','boobs','hentai','blowjob','handjob','wank','molest','pedo','retard','dumbass','jackass','fatass','bigass','badass','smartass','kickass'];
+const BAD_WORDS = ['ass','sex','hoe','cum','tit','cock','anal','nude','nudes','bastard','damn','arse','prick','twat','wtf','stfu','kys'];
+function nameOk(name){
+  const norm = [...String(name).toLowerCase()].map(c => LEET[c] || c).join('');
+  const letters = norm.replace(/[^a-z]/g, '');
+  if (BAD_FRAGS.some(f => letters.includes(f))) return false;
+  return !norm.split(/[^a-z]+/).some(t => BAD_WORDS.includes(t));
+}
+// sweep accounts that existed before the filter — delete them outright
+{
+  let swept = false;
+  for (const name of Object.keys(db.accounts)){
+    if (OWNER_ACCOUNTS.includes(name) || nameOk(name)) continue;
+    delete db.accounts[name]; delete db.commands[name];
+    db.admins = db.admins.filter(x => x !== name);
+    db.blocked = db.blocked.filter(x => x !== name);
+    db.chatMuted = db.chatMuted.filter(x => x !== name);
+    for (const k of Object.keys(db.dms || {})){ try { if (JSON.parse(k).includes(name)) delete db.dms[k]; } catch {} }
+    console.log('removed inappropriate account name:', name);
+    swept = true;
+  }
+  if (swept) setTimeout(() => persist(), 0); // persist is defined below
+}
 
 let saveTimer = null;
 function persist(){
@@ -116,6 +144,7 @@ const server = http.createServer(async (req, res) => {
     const b = await readBody(req);
     const name = cleanName(b && b.name);
     if (!name) return send(res, 400, { error: 'Pick a name first.' });
+    if (!nameOk(name)) return send(res, 400, { error: "That name isn't allowed — keep it clean and pick another." });
     if (typeof (b && b.pin) !== 'string' || b.pin.length < 4) return send(res, 400, { error: 'PIN must be at least 4 characters.' });
     if (db.accounts[name]) return send(res, 409, { error: 'That name is taken — log in instead, or pick another.' });
     const device = typeof (b && b.device) === 'string' ? b.device.slice(0, 64) : '';
@@ -153,6 +182,7 @@ const server = http.createServer(async (req, res) => {
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     const to = cleanName(b.newName);
     if (!to) return send(res, 400, { error: 'Pick a new name.' });
+    if (!nameOk(to)) return send(res, 400, { error: "That name isn't allowed — keep it clean and pick another." });
     if (db.accounts[to]) return send(res, 409, { error: 'That name is taken.' });
     db.accounts[to] = got.a;
     delete db.accounts[got.name];

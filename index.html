@@ -214,6 +214,7 @@ main{padding:14px 14px 30px}
           <button id="renamebtn">Change account name</button>
           <button id="retirebtn" style="display:none">🏅 Retire as a legend</button>
           <button id="classicbtn">🕹️ Classic mode</button>
+          <button id="tutorialbtn">🎓 Tutorial</button>
           <button id="adminbtn">Admin panel</button>
         </div>
       </div>
@@ -580,14 +581,14 @@ function freshState(){
            all:0, taps:0, rings:0, prestiges:0, buyIdx:0, last:Date.now(),
            playtime:0, peakRate:0, lastDaily:0, lastAnnounce:0, longestSession:0, lastPodium:0, pets:{},
            goat:false, goatSeen:false, legends:0, battleWins:0, battleLosses:0,
-           roster:[], teamWins:0, teamLosses:0, followers:0, lifestyle:[], lastPost:0, classic:false, chatRead:{} };
+           roster:[], teamWins:0, teamLosses:0, followers:0, lifestyle:[], lastPost:0, classic:false, chatRead:{}, seenWelcome:false };
 }
 function load(raw){
   try {
     const d = freshState();
     if (raw){
       const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses','roster','teamWins','teamLosses','followers','lifestyle','lastPost','classic','chatRead'])
+      for (const k of ['cur','unlocked','all','taps','rings','prestiges','buyIdx','last','playtime','peakRate','sport','lastDaily','lastAnnounce','longestSession','lastPodium','pets','goat','goatSeen','legends','battleWins','battleLosses','roster','teamWins','teamLosses','followers','lifestyle','lastPost','classic','chatRead','seenWelcome'])
         if (s[k] !== undefined) d[k] = s[k];
       d.roster = Array.isArray(d.roster) ? [...new Set(d.roster.filter(i => Number.isInteger(i) && PLAYER_POOL[i]))] : [];
       d.lifestyle = Array.isArray(d.lifestyle) ? [...new Set(d.lifestyle.filter(i => Number.isInteger(i) && LIFESTYLE_ITEMS[i]))] : [];
@@ -1420,6 +1421,63 @@ function showNotice(icon, title, bodyHtml){
     <div style="text-align:left;white-space:pre-wrap;word-break:break-word;margin-top:6px">${bodyHtml}</div>
     <div class="btncol"><button class="primary">OK</button></div></div>`;
   ov.querySelector('button').addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
+}
+/* -------------------- new-account welcome + tutorial --------------------- */
+// Fires once, at account creation only (never on logins or for plain guests);
+// the seenWelcome flag rides the save so it can't repeat on another device.
+function welcomeModal(){
+  if (!S || S.seenWelcome) return;
+  S.seenWelcome = true; save();
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  ov.innerHTML = `<div class="modal">
+    <div style="font-size:2.6rem">👋</div>
+    <h2>hey first time. It's the owner, matteo</h2>
+    <p class="dim">Welcome to the game! Want me to show you around real quick?</p>
+    <div class="btncol">
+      <button class="primary" id="wel-tour">🎓 Show me around</button>
+      <button class="ghost" id="wel-skip">Skip — I'll figure it out</button>
+    </div></div>`;
+  ov.querySelector('#wel-tour').addEventListener('click', () => { ov.remove(); startTutorial(); });
+  ov.querySelector('#wel-skip').addEventListener('click', () => ov.remove());
+  document.body.appendChild(ov);
+}
+const TUTORIAL_STEPS = [
+  { tab:'empire',   icon:'🏀', title:'Tap the ball',        text:'Tap the ball to hustle up cash (spacebar works too!). Buy businesses below — they earn money for you, even while you\'re away.' },
+  { tab:'upgrades', icon:'📈', title:'Upgrades',            text:'One-time boosts that multiply your income. Each world has its own set — grab them when the pip lights up.' },
+  { tab:'empire',   icon:'🌍', title:'Three worlds',        text:'Earn enough and you unlock the next world, with its own money and businesses. You can move cash between worlds with 💱 Exchange in the 👤 menu.' },
+  { tab:'prestige', icon:'💍', title:'Championship rings',  text:'When your run is big, cash it out for rings. Every ring boosts ALL your income by +5% — forever, even after resets.' },
+  { tab:'pets',     icon:'🐾', title:'Pets',                text:'Open packs to collect pets — rarer pets give bigger boosts. Send them into the Battle Arena to win cash!' },
+  { tab:'team',     icon:'🧢', title:'Be the Coach',        text:'Buy players, build your starting five, play games against friends and bet on yourself. Win to get famous — then post on social media for cash.' },
+  { tab:'chat',     icon:'💬', title:'Chat',                text:'See who\'s playing right now (green dot!) and send them private messages.' },
+  { tab:'leaders',  icon:'🏅', title:'Climb the boards',    text:'Nine leaderboards to top — money, rings, team wins, followers and more. The 👤 menu has bonus cash, trading and sport skins. Have fun!' },
+];
+function startTutorial(){
+  if (!S) return;
+  const ov = document.createElement('div'); ov.className = 'overlay';
+  const modal = document.createElement('div'); modal.className = 'modal';
+  ov.appendChild(modal);
+  let i = 0;
+  const done = () => { ov.remove(); document.querySelector('[data-tab="empire"]').click(); };
+  function render(){
+    const s = TUTORIAL_STEPS[i], last = i === TUTORIAL_STEPS.length - 1;
+    const tabBtn = document.querySelector(`[data-tab="${s.tab}"]`);
+    if (tabBtn) tabBtn.click(); // show the real screen behind the card
+    modal.innerHTML = `
+      <div style="font-size:2.6rem">${s.icon}</div>
+      <h2>${s.title}</h2>
+      <p class="dim" style="font-size:.95rem">${s.text}</p>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:12px">
+        <button class="ghost" id="tut-back" style="width:auto;padding:10px 14px${i ? '' : ';visibility:hidden'}">← Back</button>
+        <span class="dim" style="font-size:.75rem">${i + 1} / ${TUTORIAL_STEPS.length}</span>
+        <button class="primary" id="tut-next" style="width:auto;padding:10px 18px">${last ? "Let's play! 🏀" : 'Next →'}</button>
+      </div>
+      <button class="ghost mini" id="tut-skip" style="margin-top:10px">Skip tutorial</button>`;
+    modal.querySelector('#tut-back').addEventListener('click', () => { if (i > 0){ i--; render(); } });
+    modal.querySelector('#tut-next').addEventListener('click', () => { if (i === TUTORIAL_STEPS.length - 1) done(); else { i++; render(); } });
+    modal.querySelector('#tut-skip').addEventListener('click', done);
+  }
+  render();
   document.body.appendChild(ov);
 }
 /* ------------------------- chat: presence + DMs -------------------------- */
@@ -2539,9 +2597,21 @@ function renderLeaders(){
   renderBoard('lb-followers', rows.slice().sort((a, b) => b.fol - a.fol).slice(0, TOP), r => `${fmt(r.fol || 0)} 📱`);
 }
 
+// Username filter — mirror of the server's nameOk (the server is authoritative
+// for online accounts; this copy also covers offline/device-only accounts).
+const LEET = { '0':'o','1':'i','3':'e','4':'a','5':'s','7':'t','8':'b','@':'a','$':'s','!':'i','+':'t' };
+const BAD_FRAGS = ['fuck','shit','bitch','cunt','nigg','fag','whore','slut','penis','vagina','porn','boner','dildo','rape','nazi','hitler','pussy','asshole','dick','sexy','tits','boobs','hentai','blowjob','handjob','wank','molest','pedo','retard','dumbass','jackass','fatass','bigass','badass','smartass','kickass'];
+const BAD_WORDS = ['ass','sex','hoe','cum','tit','cock','anal','nude','nudes','bastard','damn','arse','prick','twat','wtf','stfu','kys'];
+function nameOk(name){
+  const norm = [...String(name).toLowerCase()].map(c => LEET[c] || c).join('');
+  const letters = norm.replace(/[^a-z]/g, '');
+  if (BAD_FRAGS.some(f => letters.includes(f))) return false;
+  return !norm.split(/[^a-z]+/).some(t => BAD_WORDS.includes(t));
+}
 function createAccount(name){
   name = (name || '').trim().slice(0, 20);
   if (!name) return null;
+  if (!nameOk(name)){ alert("That name isn't allowed — keep it clean and pick another."); return null; }
   const list = accounts();
   if (!list.includes(name)){
     if (list.length >= 2){ alert('You can only have 2 accounts on this device.'); return null; }
@@ -2632,6 +2702,7 @@ function showStart(mode){
       try {
         const r = await api('/api/signup', { method: 'POST', body: JSON.stringify({ name: n, pin: pin.value, device: deviceId(), save: local ? JSON.parse(local) : null }) });
         beginOnline(n, pin.value, r.save);
+        welcomeModal(); // brand-new account — greet them once
       } catch (e) { err(e.status === 409 ? 'That name is taken — log in instead, or pick another.' : e.status === 403 ? 'This device already has 2 accounts — that\'s the max. Log in to one instead.' : 'Could not reach the server.'); }
     };
     modal.querySelector('#go').addEventListener('click', go);
@@ -2693,7 +2764,7 @@ function showStart(mode){
         <button class="ghost" id="back">Back</button>
       </div>`;
     const inp = modal.querySelector('#acctname');
-    const go = () => { const n = createAccount(inp.value); if (n) begin(n); else inp.focus(); };
+    const go = () => { const n = createAccount(inp.value); if (n){ begin(n); welcomeModal(); } else inp.focus(); };
     modal.querySelector('#go').addEventListener('click', go);
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
     modal.querySelector('#back').addEventListener('click', menuLocal);
@@ -2731,6 +2802,7 @@ el('postbtn').addEventListener('click', () => {
   if (r){ alert(r.text + '\n\n+' + $$(r.pay) + '!'); renderTeam(); }
 });
 el('classicbtn').addEventListener('click', toggleClassic);
+el('tutorialbtn').addEventListener('click', () => { el('acctdrop').style.display = 'none'; if (S) startTutorial(); });
 el('petgrid').addEventListener('click', e => { const b = e.target.closest('[data-sell]'); if (!b) return; petSell(b.dataset.sell, 1); renderPets(); });
 el('selldupes').addEventListener('click', () => {
   if (!S) return;
@@ -2762,12 +2834,14 @@ el('acctsave').addEventListener('click', async () => {
       onlineCreds = { name: raw, pin };
       player = raw;
       save(); updateAcctUI(); syncTick();
+      welcomeModal(); // guest just became a brand-new account
     } catch (e) { alert(e.status === 409 ? 'That name is taken — pick another.' : e.status === 403 ? 'This device already has 2 accounts — that\'s the max.' : 'Could not reach the server.'); }
     return;
   }
   if (accounts().includes(raw) && !confirm(`"${raw}" already exists — overwrite it with your current game?`)) return;
   player = createAccount(raw);
   save(); updateAcctUI();
+  if (player) welcomeModal();
 });
 function leaveGame(mode){ // save and return to the start screen
   if (!S) return;
@@ -2806,6 +2880,7 @@ el('renamebtn').addEventListener('click', async () => {
   if (!S || !player) return;
   const n = (prompt(`New name for ${player}?`, player) || '').trim().slice(0, 20);
   if (!n || n === player) return;
+  if (!nameOk(n)){ alert("That name isn't allowed — keep it clean and pick another."); return; }
   if (onlineCreds){ // online account: rename on the server
     try {
       await api('/api/rename', { method: 'POST', body: JSON.stringify({ ...onlineCreds, newName: n }) });
@@ -2813,7 +2888,7 @@ el('renamebtn').addEventListener('click', async () => {
       onlineCreds = { ...onlineCreds, name: n };
       player = n;
       updateAcctUI(); paint();
-    } catch (e) { alert(e.status === 409 ? `"${n}" is already taken.` : 'Could not reach the server.'); }
+    } catch (e) { alert(e.status === 409 ? `"${n}" is already taken.` : e.status === 400 ? "That name isn't allowed — keep it clean and pick another." : 'Could not reach the server.'); }
     return;
   }
   if (accounts().includes(n)){ alert(`"${n}" is already taken by another account.`); return; }
