@@ -11,7 +11,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Only these accounts may ever open the admin panel — even with the right
 // passcode. They are also exempt from being blocked. Matched exactly.
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
-const VERSION = 13;  // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 14;  // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
 // galaxy.json, not tycoon.json: the switch to Galaxy Tycoon starts a fresh
 // database. The old Hardwood Tycoon data stays untouched on the volume.

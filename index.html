@@ -164,9 +164,7 @@ input,textarea{font-family:inherit}
     <button class="tab on" data-tab="command">🚀 Command</button>
     <button class="tab" data-tab="galaxy">🪐 Galaxy</button>
     <button class="tab" data-tab="deep">🎲 Deep Space</button>
-    <button class="tab" data-tab="wormhole">🌀 Wormhole</button>
-    <button class="tab" data-tab="crew">👩‍🚀 Crew<span class="pip" id="crew-pip" style="display:none"></span></button>
-    <button class="tab" data-tab="hub">🛰️ Hub<span class="pip" id="chat-pip" style="display:none"></span></button>
+    <button class="tab" data-tab="hub">🛰️ Hub<span class="pip" id="chat-pip" style="display:none"></span><span class="pip" id="crew-pip" style="display:none;right:20px;background:var(--gold);box-shadow:0 0 8px var(--gold)"></span></button>
   </div>
 
   <main>
@@ -179,23 +177,21 @@ input,textarea{font-family:inherit}
           <button class="ghost" id="laserup" style="margin-top:8px">🔫 Laser Lv 1 — upgrade</button>
         </div>
       </div>
+      <div class="panel" id="quicksell"></div>
       <div class="panel" id="refpanel"></div>
       <div class="panel"><h3>🛎️ Hangar</h3><div id="hangar"></div></div>
     </section>
 
-    <section id="tab-galaxy" style="display:none"><div id="starmap"></div></section>
+    <section id="tab-galaxy" style="display:none"><div id="starmap"></div><div id="wormhole"></div></section>
 
     <section id="tab-deep" style="display:none"><div id="deepspace"></div></section>
 
-    <section id="tab-wormhole" style="display:none"><div id="wormhole"></div></section>
-
-    <section id="tab-crew" style="display:none"><div id="crewbook"></div></section>
-
     <section id="tab-hub" style="display:none">
-      <div class="panel" id="marketpanel"></div>
-      <div class="panel" id="goalpanel"></div>
-      <div class="panel"><h3>📡 Comms</h3><div id="chatwrap"></div></div>
       <div class="panel"><h3>🏅 Leaderboards</h3><p class="dim" id="lbnote"></p><div id="lbwrap"></div></div>
+      <div class="panel"><h3>📡 Comms</h3><div id="chatwrap"></div></div>
+      <div class="panel" id="goalpanel"></div>
+      <div class="panel" id="marketpanel"></div>
+      <div id="crewbook"></div>
       <div class="panel" id="statspanel"></div>
       <div class="panel">
         <h3>Danger zone</h3>
@@ -474,17 +470,21 @@ function refUnlocked(){ return S.lifetime >= 250 || S.refLvl > 0 || S.refQueue >
 /* ships & missions */
 function ownShip(id){ return S && S.ships && !!S.ships[id]; }
 function hangarSlots(){ return 2 + (hasTech('hangar1') ? 1 : 0) + (hasTech('hangar2') ? 1 : 0); }
+function biggestShip(){ // crew auto-help: Inky rides the biggest ship you own
+  let best = null, bestCargo = -1;
+  for (const id in S.ships){ if (sDef(id).cargo > bestCargo){ bestCargo = sDef(id).cargo; best = id; } }
+  return best;
+}
 function shipCargo(id){
   const d = sDef(id), st = S.ships[id];
   let c = d.cargo * Math.pow(1.15, (st && st.lvl) || 0);
-  const crewId = S.assign['ship:' + id];
-  if (crewId === 'inky') c *= 1.2;
+  if (hasCrew('inky') && id === biggestShip()) c *= 1.2;
   return c;
 }
 function shipUpCost(id){ const d = sDef(id); return Math.ceil(Math.max(100, 0.4 * d.cost) * Math.pow(1.6, S.ships[id].lvl)); }
 function missionTime(mid, sid){
   let t = mDef(mid).time * sDef(sid).tmult;
-  if (S.assign['ship:' + sid] === 'cosmo') t *= 0.85;
+  if (hasCrew('cosmo')) t *= 0.85;      // Cosmo cheers on the whole fleet
   if (hasTech('warp')) t *= 0.8;
   if (hasArt('horn')) t *= 0.9;
   return Math.max(3000, t);
@@ -517,8 +517,8 @@ function colonyOutMult(pid){
   const c = S.colonies[pid];
   let m = (1 + 0.1 * c.hab) * allProdMult();
   if (hasTech('terra')) m *= 1.5;
-  if (S.assign['col:' + pid] === 'quark') m *= 1.25;
-  if (S.assign['col:' + pid] === 'chef') m *= 1.2;
+  if (hasCrew('quark')) m *= 1.125;   // colony crew now help every colony (half strength)
+  if (hasCrew('chef')) m *= 1.10;
   if ((c.mile || [])[2]) m *= 1.25;   // third survey milestone
   return m;
 }
@@ -637,16 +637,16 @@ function tick(dt){ // dt ms
     S.droneT = (S.droneT || 0) + dt;
     while (S.droneT >= 1000){ S.droneT -= 1000; S.ore += S.laser * (hasTech('laser1') ? 2 : 1) * (hasTech('laser2') ? 4 : 1) * allProdMult(); }
   }
-  // refinery
-  if (S.refQueue > 0){
+  // refinery: fully automatic — converts whenever materials are on hand
+  if (refUnlocked() && S.ore >= REF_IN.ore && S.ice >= REF_IN.ice){
     S.refT += dt;
     const bt = refBatchTime();
-    while (S.refT >= bt && S.refQueue > 0){
-      S.refT -= bt; S.refQueue--;
+    while (S.refT >= bt && S.ore >= REF_IN.ore && S.ice >= REF_IN.ice){
+      S.refT -= bt;
+      S.ore -= REF_IN.ore; S.ice -= REF_IN.ice;
       S.fuel += refOut(); S.n.refined += refOut();
     }
-    if (S.refQueue <= 0) S.refT = 0;
-  }
+  } else S.refT = 0;
   // colonies produce into silos
   for (const pid in S.colonies){
     const c = S.colonies[pid], rates = colonyRates(pid), cap = siloCap(pid);
@@ -687,11 +687,16 @@ function resolveOffline(){
       c.stored[r] = (c.stored[r] || 0) + add; total += add;
     }
   }
-  // refinery queue
-  if (S.refQueue > 0){
-    const done = Math.min(S.refQueue, Math.floor((away + S.refT) / refBatchTime()));
-    S.refQueue -= done; const f = done * refOut();
-    S.fuel += f; S.n.refined += f; gains.fuel += f;
+  // refinery: auto-converts offline too, bounded by materials on hand
+  if (refUnlocked()){
+    const possible = Math.floor((away + S.refT) / refBatchTime());
+    const byMats = Math.min(Math.floor(S.ore / REF_IN.ore), Math.floor(S.ice / REF_IN.ice));
+    const done = Math.max(0, Math.min(possible, byMats));
+    if (done > 0){
+      S.ore -= done * REF_IN.ore; S.ice -= done * REF_IN.ice;
+      const f = done * refOut();
+      S.fuel += f; S.n.refined += f; gains.fuel += f;
+    }
   }
   // missions: complete; with Auto-Relaunch, run repeat cycles up to a queue cap
   const capMs = hasTech('deep') ? 24 * 3600e3 : 8 * 3600e3;
@@ -732,7 +737,7 @@ function paint(){
   el('tapval').textContent = '+' + fmt(tapYield()) + ' ⛏️';
   el('laserup').textContent = `🔫 Laser Lv ${S.laser} — upgrade for ${fC(laserCost())}`;
   el('laserup').disabled = S.credits < laserCost();
-  if (visible('command')){ paintRefinery(); paintHangar(); }
+  if (visible('command')){ paintQuickSell(); paintRefinery(); paintHangar(); }
   if (visible('galaxy')) paintGalaxy();
   if (visible('deep')) paintDeep();
 }
@@ -762,34 +767,76 @@ function tap(){
 function paintRefinery(){
   const p = el('refpanel');
   if (!refUnlocked()){
-    p.innerHTML = `<h3>🏭 Refinery</h3><p class="dim">Unlocks once you've earned ${fC(250)} lifetime — keep mining and selling ore in the 🛰️ Hub!</p>`;
+    p.innerHTML = `<h3>🏭 Refinery</h3><p class="dim">Unlocks once you've earned ${fC(250)} lifetime — keep mining and selling that ore!</p>`;
     return;
   }
   const bt = refBatchTime();
-  const canQueue = S.ore >= REF_IN.ore && S.ice >= REF_IN.ice && S.refQueue < 50;
+  const running = S.ore >= REF_IN.ore && S.ice >= REF_IN.ice;
   p.innerHTML = `
-    <h3>🏭 Refinery <span class="dim" style="font-weight:400">Lv ${S.refLvl}</span></h3>
-    <p class="dim">${REF_IN.ore} ⛏️ + ${REF_IN.ice} 🧊 → <b style="color:var(--fuel)">${refOut()} 🚀</b> every ${(bt / 1000).toFixed(1)}s. Queue: <b>${S.refQueue}</b>/50${S.refQueue ? ' · next in ' + Math.ceil((bt - S.refT) / 1000) + 's' : ''}</p>
-    <div class="prog"><div style="width:${S.refQueue ? (S.refT / bt * 100) : 0}%"></div></div>
-    <div class="btncol">
-      <button class="primary" id="refbatch" ${canQueue ? '' : 'disabled'}>➕ Queue a batch (${REF_IN.ore} ⛏️ + ${REF_IN.ice} 🧊)</button>
-      <div style="display:flex;gap:8px">
-        <button class="ghost" id="refmax" style="flex:1">Queue MAX</button>
-        <button class="ghost" id="refup" style="flex:1" ${S.credits < refCost() ? 'disabled' : ''}>⬆️ Upgrade ${fC(refCost())}</button>
-      </div>
-    </div>`;
-  p.querySelector('#refbatch').onclick = () => { if (S.ore >= REF_IN.ore && S.ice >= REF_IN.ice && S.refQueue < 50){ S.ore -= REF_IN.ore; S.ice -= REF_IN.ice; S.refQueue++; paint(); save(); } };
-  p.querySelector('#refmax').onclick = () => {
-    while (S.ore >= REF_IN.ore && S.ice >= REF_IN.ice && S.refQueue < 50){ S.ore -= REF_IN.ore; S.ice -= REF_IN.ice; S.refQueue++; }
-    paint(); save();
-  };
+    <h3>🏭 Refinery <span class="dim" style="font-weight:400">Lv ${S.refLvl} · automatic</span></h3>
+    <p class="dim">${running ? '🟢 Running' : '🟡 Waiting for materials'} — turns ${REF_IN.ore} ⛏️ + ${REF_IN.ice} 🧊 into <b style="color:var(--fuel)">${refOut()} 🚀</b> every ${(bt / 1000).toFixed(1)}s, all by itself.</p>
+    <div class="prog"><div style="width:${running ? (S.refT / bt * 100) : 0}%"></div></div>
+    <div class="btncol"><button class="ghost" id="refup" ${S.credits < refCost() ? 'disabled' : ''}>⬆️ Upgrade — faster & more fuel — ${fC(refCost())}</button></div>`;
   p.querySelector('#refup').onclick = () => { if (S.credits >= refCost()){ S.credits -= refCost(); S.refLvl++; paint(); save(); } };
+}
+function paintQuickSell(){
+  const p = el('quicksell');
+  const m = lbData && lbData.market;
+  const price = r => m ? m[r].price : MARKET_BASE[r];
+  p.innerHTML = `
+    <h3>💰 Sell your haul</h3>
+    <div style="display:flex;gap:8px">
+      <button class="ghost" id="qs-ore" style="flex:1" ${Math.floor(S.ore) < 1 ? 'disabled' : ''}>Sell ⛏️ ALL — ${price('ore')} ⭐ each</button>
+      <button class="ghost" id="qs-ice" style="flex:1" ${Math.floor(S.ice) < 1 ? 'disabled' : ''}>Sell 🧊 ALL — ${price('ice')} ⭐ each</button>
+    </div>
+    <p class="fineprint">Prices drift up and down for the whole galaxy — the 🛰️ Hub has the charts if you want to time it.</p>`;
+  p.querySelector('#qs-ore').onclick = () => quickSell('ore');
+  p.querySelector('#qs-ice').onclick = () => quickSell('ice');
+}
+async function quickSell(res){
+  const amount = Math.floor(S[res]);
+  if (amount < 1) return;
+  if (serverOn && onlineCreds){
+    try {
+      const r = await api('/api/market/trade', { method: 'POST', body: JSON.stringify({ ...onlineCreds, res, dir: 'sell', amount }) });
+      let credits = r.credits;
+      if (hasCrew('umbral')) credits = Math.floor(credits * 1.08);
+      S[res] -= amount; S.credits += credits; S.lifetime += credits;
+      S.n.marketvol += credits; S.n.trades++;
+      toast('+' + fC(credits));
+      checkUnlocks(); paint(); save();
+      return;
+    } catch {}
+  }
+  // guest / offline: sell locally at base price
+  const credits = Math.floor(amount * MARKET_BASE[res] * (hasCrew('umbral') ? 1.08 : 1));
+  S[res] -= amount; S.credits += credits; S.lifetime += credits;
+  S.n.marketvol += credits; S.n.trades++;
+  toast('+' + fC(credits));
+  checkUnlocks(); paint(); save();
+}
+function sendAllShips(){ // one button: every idle ship flies the biggest mission it can fuel
+  let sent = 0;
+  const idle = Object.keys(S.ships).filter(sid => !S.ships[sid].mis && !(S.ships[sid].wreck && Date.now() < S.ships[sid].wreck));
+  const byFuel = MISSIONS.filter(m => colonyCount() >= m.need).sort((a, b) => b.fuel - a.fuel);
+  for (const sid of idle){
+    if (Object.values(S.ships).filter(x => x.mis).length >= hangarSlots()) break;
+    const m = byFuel.find(x => S.fuel >= x.fuel);
+    if (!m) break;
+    S.fuel -= m.fuel;
+    S.ships[sid].mis = { type: m.id, until: Date.now() + missionTime(m.id, sid) };
+    sent++;
+  }
+  if (sent) toast('🚀 ' + sent + (sent === 1 ? ' ship' : ' ships') + ' launched!');
+  else alert('No ships could launch — check your fuel, or wait for ships to come home.');
+  paint(); save();
 }
 function paintHangar(){
   const h = el('hangar');
   const owned = Object.keys(S.ships);
   const slots = hangarSlots();
-  let html = `<p class="dim">Ships fly missions and come back with cargo. Slots used: <b>${owned.filter(id => S.ships[id].mis).length}</b>/${slots} flying.</p>`;
+  let html = `<button class="primary" id="sendall" style="margin-bottom:8px">🚀 Send all idle ships</button>
+    <p class="dim">Ships fly missions and come back with cargo. Slots used: <b>${owned.filter(id => S.ships[id].mis).length}</b>/${slots} flying.</p>`;
   for (const sid of owned){
     const d = sDef(sid), st = S.ships[sid];
     let body;
@@ -831,6 +878,7 @@ function paintHangar(){
     }).join('');
   }
   h.innerHTML = html;
+  h.querySelector('#sendall').onclick = sendAllShips;
   h.querySelectorAll('[data-collect]').forEach(b => b.onclick = () => collectMission(b.dataset.collect));
   h.querySelectorAll('[data-launch]').forEach(b => b.onclick = () => {
     const sid = b.dataset.launch, mid = h.querySelector(`[data-mis="${sid}"]`).value;
@@ -933,33 +981,20 @@ function colonySheet(pid){
   ov.appendChild(modal);
   function render(){
     const c = S.colonies[pid];
-    const crewId = S.assign['col:' + pid];
-    const colCrew = S.crew.filter(id => cDef(id).slot === 'col');
     const tl = colonyTotalLvl(pid);
     const nextM = MILESTONES.find(m => tl < m);
     modal.innerHTML = `
       <div style="font-size:2.6rem;text-align:center">${p.e}</div>
       <h2 style="text-align:center">${p.name}</h2>
       <p class="dim" style="text-align:center">Total level ${tl}${nextM ? ` · next survey milestone at ${nextM} 🎖️` : ' · fully surveyed 🎖️🎖️🎖️'}</p>
-      ${[['ext', '⛏️ Extractor', 'produces resources'], ['silo', '📦 Silo', 'storage (fills while you\'re away)'], ['hab', '🏠 Habitat', '+10% output each' + (c.hab >= 5 ? '' : ' · crew slot at Lv 5')]].map(([b, label, desc]) => `
+      ${[['ext', '⛏️ Extractor', 'produces resources'], ['silo', '📦 Silo', 'storage (fills while you\'re away)'], ['hab', '🏠 Habitat', '+10% output each']].map(([b, label, desc]) => `
         <div class="statrow"><span>${label} <b>Lv ${c[b]}</b><br><span class="dim">${desc}</span></span>
           <button class="ghost mini" data-b="${b}" ${S.credits < bCost(pid, b, c[b]) ? 'disabled' : ''}>⬆️ ${fC(bCost(pid, b, c[b]))}</button></div>`).join('')}
-      ${c.hab >= 5 ? `<div class="statrow"><span>👩‍🚀 Colony crew</span><span>
-        <select id="colcrew" style="background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px">
-          <option value="">— none —</option>
-          ${colCrew.map(id => `<option value="${id}" ${crewId === id ? 'selected' : ''}>${cDef(id).e} ${cDef(id).name}</option>`).join('')}
-        </select></span></div>` : ''}
       <div class="btncol"><button class="ghost" id="cs-close">Close</button></div>`;
     modal.querySelectorAll('[data-b]').forEach(b => b.onclick = () => {
       const k = b.dataset.b, cost = bCost(pid, k, c[k]);
       if (S.credits >= cost){ S.credits -= cost; c[k]++; paint(); save(); render(); }
     });
-    const sel = modal.querySelector('#colcrew');
-    if (sel) sel.onchange = () => {
-      for (const k in S.assign) if (S.assign[k] === sel.value && k !== 'col:' + pid) delete S.assign[k];
-      if (sel.value) S.assign['col:' + pid] = sel.value; else delete S.assign['col:' + pid];
-      save(); render();
-    };
     modal.querySelector('#cs-close').onclick = () => { ov.remove(); paintGalaxy(); };
   }
   render();
@@ -1137,29 +1172,19 @@ function paintWormhole(){
 function paintCrew(){
   el('crew-pip').style.display = 'none';
   const w = el('crewbook');
-  const shipCrew = S.crew.filter(id => cDef(id).slot === 'ship');
   w.innerHTML = `
     <div class="panel">
       <h3>👩‍🚀 Crew (${S.crew.length}/${CREW.length})</h3>
-      <p class="dim">Every crew member has a known way to earn them — no luck packs. Ship specialists get assigned below; everyone else helps automatically.</p>
+      <p class="dim">Every crew member has a known way to earn them — no luck packs. Once they join, they help automatically.</p>
       <div class="crewgrid">${CREW.map(c => {
         const own = hasCrew(c.id);
-        const assigned = Object.values(S.assign).includes(c.id);
-        return `<div class="crewcard ${own ? '' : 'missing'}${assigned ? ' assigned' : ''}">
+        return `<div class="crewcard ${own ? '' : 'missing'}">
           <div class="ce">${own ? c.e : '❓'}</div>
           <div class="cn">${own ? esc(c.name) : '???'}</div>
           <div class="cs">${own ? esc(c.eff) : '🔍 ' + esc(c.hint)}</div>
           ${own ? `<div class="cs" style="color:var(--gold)">${esc(c.src)}</div>` : ''}
         </div>`;
       }).join('')}</div>
-    </div>
-    <div class="panel">
-      <h3>🚀 Ship assignments</h3>
-      ${Object.keys(S.ships).map(sid => `<div class="statrow"><span>${sDef(sid).e} ${sDef(sid).name}</span><span>
-        <select data-assign="${sid}" style="background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px">
-          <option value="">— no specialist —</option>
-          ${shipCrew.map(id => `<option value="${id}" ${S.assign['ship:' + sid] === id ? 'selected' : ''}>${cDef(id).e} ${cDef(id).name}</option>`).join('')}
-        </select></span></div>`).join('') || '<p class="dim">No ships yet.</p>'}
     </div>
     <div class="panel">
       <h3>🗿 Artifact shelf (${S.artifacts.length}/${ARTIFACTS.length})</h3>
@@ -1177,12 +1202,6 @@ function paintCrew(){
         </div>`;
       }).join('')}</div>
     </div>`;
-  w.querySelectorAll('[data-assign]').forEach(sel => sel.onchange = () => {
-    const sid = sel.dataset.assign;
-    for (const k in S.assign) if (S.assign[k] === sel.value && k !== 'ship:' + sid) delete S.assign[k];
-    if (sel.value) S.assign['ship:' + sid] = sel.value; else delete S.assign['ship:' + sid];
-    save(); paintCrew();
-  });
 }
 
 /* -------------------------------- hub tab -------------------------------- */
@@ -1311,8 +1330,8 @@ function paintStats(){
     <p class="dim" id="acctinfo" style="margin-top:8px"></p>`;
   updateAcctUI();
 }
-function renderHub(){ paintMarket(); paintGoal(); renderChat(); paintLeaders(); paintStats(); }
-function renderAll(){ paint(); if (visible('galaxy')) paintGalaxy(); if (visible('deep')) paintDeep(); if (visible('wormhole')) paintWormhole(); if (visible('crew')) paintCrew(); if (visible('hub')) renderHub(); }
+function renderHub(){ paintLeaders(); renderChat(); paintGoal(); paintMarket(); paintCrew(); paintStats(); }
+function renderAll(){ paint(); if (visible('galaxy')){ paintGalaxy(); paintWormhole(); } if (visible('deep')) paintDeep(); if (visible('hub')) renderHub(); }
 /* ====================== server sync (plumbing) =========================== */
 const SYNC_URL = 'https://hardwood-tycoon.up.railway.app';
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
@@ -1521,14 +1540,12 @@ function welcomeModal(){
   document.body.appendChild(ov);
 }
 const TUTORIAL_STEPS = [
-  { tab:'command', icon:'🪨', title:'Blast that asteroid!',  text:'Tap the asteroid (or spacebar) to mine ⛏️ Ore. Tap fast to build a combo — and watch for 💥 ORE CHUNKS!' },
-  { tab:'hub',     icon:'📈', title:'Sell your ore',         text:'The Galactic Market buys your ore for ⭐ Credits. Prices go up and down for everyone — sell when it\'s 🔥 HOT!' },
-  { tab:'command', icon:'🏭', title:'Refine fuel',           text:'Turn ⛏️ Ore + 🧊 Ice into 🚀 Fuel at the Refinery. Fuel launches everything cool in this game.' },
-  { tab:'command', icon:'🛎️', title:'Launch missions',       text:'Send your ships on timed missions — they fly home with crates of loot. Bigger missions, bigger hauls.' },
-  { tab:'galaxy',  icon:'🪐', title:'Colonize planets',      text:'Plant your flag on 12 planets, from Moon Cheddar to spooky Umbra. Their silos fill up even while you\'re asleep!' },
-  { tab:'deep',    icon:'🎲', title:'Deep Space dares',      text:'Stake fuel on risky expeditions. Win and choose: bank it… or GO DEEPER for double. Legends are made in The Void.' },
-  { tab:'wormhole',icon:'🌀', title:'The Wormhole',          text:'When your run is huge, jump! You restart with 🌌 Dark Matter to spend on permanent tech — YOUR build, your choice.' },
-  { tab:'crew',    icon:'👩‍🚀', title:'Collect your crew',   text:'12 crewmates and 8 artifacts to find — every one has a known way to earn it. Then check the Hub to chat and climb the boards. Have fun, cadet! 🫡' },
+  { tab:'command', icon:'🪨', title:'Blast that asteroid!',  text:'Tap the asteroid (or spacebar) to mine ⛏️ Ore. Tap fast for a combo — and watch for 💥 ORE CHUNKS!' },
+  { tab:'command', icon:'💰', title:'Sell it, easy',         text:'Hit "Sell ALL" right here to turn your haul into ⭐ Credits. That\'s the whole loop: blast, sell, get rich.' },
+  { tab:'command', icon:'🏭', title:'Fuel makes itself',     text:'The Refinery automatically turns ⛏️ + 🧊 into 🚀 Fuel — you never have to touch it. Fuel launches everything cool.' },
+  { tab:'command', icon:'🛎️', title:'One-button fleet',      text:'Tap "🚀 Send all idle ships" and your whole fleet flies missions, then comes home with crates of loot.' },
+  { tab:'galaxy',  icon:'🪐', title:'Own the galaxy',        text:'Colonize 12 planets — they earn while you sleep. And when your run is huge, the 🌀 Wormhole at the bottom lets you restart with permanent Dark Matter powers!' },
+  { tab:'deep',    icon:'🎲', title:'Feeling brave?',        text:'Deep Space is the gamble: stake fuel, win big, and choose — bank it or GO DEEPER. The 🛰️ Hub has chat, leaderboards and your collections. Have fun, cadet! 🫡' },
 ];
 function startTutorial(){
   if (!S) return;
@@ -1956,13 +1973,11 @@ setInterval(updateTicker, 22000);
 /* ------------------------------ tab wiring ------------------------------- */
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-  for (const sec of ['command', 'galaxy', 'deep', 'wormhole', 'crew', 'hub'])
+  for (const sec of ['command', 'galaxy', 'deep', 'hub'])
     el('tab-' + sec).style.display = t.dataset.tab === sec ? '' : 'none';
   if (!S) return;
-  if (t.dataset.tab === 'galaxy') paintGalaxy();
+  if (t.dataset.tab === 'galaxy'){ paintGalaxy(); paintWormhole(); }
   if (t.dataset.tab === 'deep') paintDeep();
-  if (t.dataset.tab === 'wormhole') paintWormhole();
-  if (t.dataset.tab === 'crew') paintCrew();
   if (t.dataset.tab === 'hub'){ chatOpen = null; renderHub(); chatFetch(); if (serverOn) api('/api/leaderboard').then(r => { lbData = r; goalBoostOn = !!(r.goal && r.goal.boost); renderHub(); }).catch(() => {}); }
 }));
 
