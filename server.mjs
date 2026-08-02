@@ -1,4 +1,4 @@
-// Hardwood Tycoon sync server — deploy on Railway.
+// Galaxy Tycoon sync server — deploy on Railway.
 // Set the ADMIN_KEY variable to your owner passcode. Attach a volume at
 // /data (or set DATA_DIR) so accounts survive redeploys.
 import http from 'node:http';
@@ -11,16 +11,14 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 // Only these accounts may ever open the admin panel — even with the right
 // passcode. They are also exempt from being blocked. Matched exactly.
 const OWNER_ACCOUNTS = ['owner', 'owners alt'];
-const VERSION = 12;  // bump on every deploy — clients that loaded an older version are forced to reload
+const VERSION = 13;  // bump on every deploy — clients that loaded an older version are forced to reload
 const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : './data');
-const DATA_FILE = path.join(DATA_DIR, 'tycoon.json');
+// galaxy.json, not tycoon.json: the switch to Galaxy Tycoon starts a fresh
+// database. The old Hardwood Tycoon data stays untouched on the volume.
+const DATA_FILE = path.join(DATA_DIR, 'galaxy.json');
 
 // accounts: name -> { pin: sha256, save: <game state|null>, created, lastSeen }
-let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, trades: [], tradeSeq: 0, blocked: [], dms: {}, dmSeq: 0, chatMuted: [] };
-const petKeyOk = k => typeof k === 'string' && /^[a-z]+:(\d+:)?(cash|rings)$/.test(k);
-function cleanPets(o){ const out = {}; if (o && typeof o === 'object') for (const k in o){ const n = Math.floor(num(o[k])); if (n > 0 && petKeyOk(k)) out[k] = n; } return out; }
-function tradesFor(name){ return { incoming: db.trades.filter(t => t.to === name), outgoing: db.trades.filter(t => t.from === name) }; }
-function queueTrade(name, pets, money){ (db.commands[name] = db.commands[name] || []).push({ trade: { pets: pets || {}, money: num(money) } }); }
+let db = { accounts: {}, commands: {}, admins: [], messages: [], announcement: { text: '', id: 0, at: 0, until: 0 }, blocked: [], dms: {}, dmSeq: 0, chatMuted: [], market: null, goal: null, goalHistory: {} };
 // active announcement: blanks out the text once its 'until' time has passed
 function activeAnnouncement(){
   const a = db.announcement || { text: '', id: 0, at: 0, until: 0 };
@@ -124,14 +122,62 @@ function removeAccount(name){ // full cleanup, used by owner deletes and self-de
   }
 }
 function statsOf(save){
-  if (!save || !Array.isArray(save.worlds)) return { cash: 10, all: 0, playtime: 0, peakRate: 0, rings: 0, prestiges: 0, longestSession: 0, legends: 0, battleWins: 0, teamWins: 0, followers: 0 };
+  if (!save || typeof save !== 'object') return { credits: 0, lifetime: 0, dm: 0, planets: 0, bestStreak: 0, collection: 0 };
   return {
-    cash: save.worlds.reduce((t, w) => t + num(w && w.cash), 0),
-    all: num(save.all), playtime: num(save.playtime), peakRate: num(save.peakRate),
-    rings: num(save.rings), prestiges: num(save.prestiges), longestSession: num(save.longestSession), legends: num(save.legends), battleWins: num(save.battleWins),
-    teamWins: num(save.teamWins), followers: num(save.followers),
+    credits: num(save.credits),
+    lifetime: num(save.lifetime),
+    dm: num(save.dmEarned),
+    planets: (save.colonies && typeof save.colonies === 'object') ? Object.keys(save.colonies).length : 0,
+    bestStreak: num(save.bestStreak),
+    collection: (Array.isArray(save.crew) ? save.crew.length : 0) + (Array.isArray(save.artifacts) ? save.artifacts.length : 0),
   };
 }
+/* ---- galactic market: server-authoritative Ore/Ice prices ---- */
+const MARKET_BASE = { ore: 1, ice: 2 };
+const MARKET_TICK = 5 * 60 * 1000;   // re-price at most every 5 minutes, lazily
+function market(){
+  if (!db.market) db.market = {
+    seed: { ore: Math.random() * Math.PI * 2, ice: Math.random() * Math.PI * 2 },
+    ore: { price: 1, hist: [] }, ice: { price: 2, hist: [] },
+    pressure: { ore: 0, ice: 0 }, lastTick: 0,
+  };
+  const m = db.market, now = Date.now();
+  if (now - m.lastTick >= MARKET_TICK){
+    for (const r of ['ore', 'ice']){
+      const base = MARKET_BASE[r];
+      const wave = 0.35 * Math.sin((2 * Math.PI * now) / 21600000 + m.seed[r]); // 6h cycle
+      const noise = (Math.random() - 0.5) * 0.16;
+      m[r].price = Math.max(0.5 * base, Math.min(2 * base, base * (1 + wave + noise - (m.pressure[r] || 0))));
+      m[r].price = Math.round(m[r].price * 100) / 100;
+      m[r].hist.push(m[r].price);
+      if (m[r].hist.length > 24) m[r].hist = m[r].hist.slice(-24);
+      m.pressure[r] = (m.pressure[r] || 0) * 0.5;   // selling pressure decays each tick
+    }
+    m.lastTick = now;
+    persist();
+  }
+  return m;
+}
+/* ---- weekly galaxy goal: one co-op donation target for the whole server ---- */
+const GOALS = [
+  { text: 'Build the Star Gate 🏗️', res: 'ore',     target: 5e6 },
+  { text: 'Fuel the Beacon 🗼',     res: 'fuel',    target: 2e5 },
+  { text: 'Fund the Space Zoo 🦁',  res: 'credits', target: 2e7 },
+];
+function weekIdx(t = Date.now()){ return Math.floor(t / (7 * 24 * 3600 * 1000)); } // whole weeks since epoch
+function goal(){
+  const w = weekIdx();
+  if (!db.goal || db.goal.week !== w){
+    if (db.goal && db.goal.week === w - 1) // record whether last week's goal was met
+      db.goalHistory[db.goal.week] = totalDonated(db.goal) >= db.goal.target;
+    const g = GOALS[w % GOALS.length];
+    db.goal = { week: w, text: g.text, res: g.res, target: g.target, contributed: {} };
+    persist();
+  }
+  return db.goal;
+}
+const totalDonated = g => Object.values(g.contributed || {}).reduce((t, v) => t + num(v), 0);
+function goalBoost(){ return db.goalHistory[weekIdx() - 1] === true; } // met last week -> boost this week
 function takeCommands(name){
   const cmds = db.commands[name] || [];
   if (cmds.length){ db.commands[name] = []; persist(); }
@@ -147,7 +193,7 @@ const server = http.createServer(async (req, res) => {
     try { return send(res, 200, fs.readFileSync('./index.html'), 'text/html; charset=utf-8'); }
     catch { return send(res, 404, { error: 'index.html missing' }); }
   }
-  if (url.pathname === '/api/ping') return send(res, 200, { ok: true, game: 'hardwood-tycoon', accounts: true, version: ver() });
+  if (url.pathname === '/api/ping') return send(res, 200, { ok: true, game: 'space-tycoon', accounts: true, version: ver() });
 
   // create an account (optionally seeded with an existing local save)
   if (url.pathname === '/api/signup' && req.method === 'POST'){
@@ -155,6 +201,9 @@ const server = http.createServer(async (req, res) => {
     const name = cleanName(b && b.name);
     if (!name) return send(res, 400, { error: 'Pick a name first.' });
     if (!nameOk(name)) return send(res, 400, { error: "That name isn't allowed — keep it clean and pick another." });
+    // the owner account names are reserved: creating them needs the passcode
+    if (OWNER_ACCOUNTS.includes(name) && req.headers['x-admin-key'] !== ADMIN_KEY)
+      return send(res, 403, { error: 'That name is reserved for the owner.' });
     if (typeof (b && b.pin) !== 'string' || b.pin.length < 4) return send(res, 400, { error: 'PIN must be at least 4 characters.' });
     if (db.accounts[name]) return send(res, 409, { error: 'That name is taken — log in instead, or pick another.' });
     const device = typeof (b && b.device) === 'string' ? b.device.slice(0, 64) : '';
@@ -172,7 +221,7 @@ const server = http.createServer(async (req, res) => {
     const got = auth(b);
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     got.a.lastSeen = Date.now(); persist();
-    return send(res, 200, { ok: true, save: got.a.save, admin: db.admins.includes(got.name), blocked: (db.blocked || []).includes(got.name), trades: tradesFor(got.name) });
+    return send(res, 200, { ok: true, save: got.a.save, admin: db.admins.includes(got.name), blocked: (db.blocked || []).includes(got.name) });
   }
 
   // push the current save; response carries pending admin commands + admin flag
@@ -182,7 +231,7 @@ const server = http.createServer(async (req, res) => {
     if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
     if (b.save && typeof b.save === 'object') got.a.save = b.save;
     got.a.lastSeen = Date.now(); persist();
-    return send(res, 200, { ok: true, commands: takeCommands(got.name), admin: db.admins.includes(got.name), blocked: (db.blocked || []).includes(got.name), trades: tradesFor(got.name) });
+    return send(res, 200, { ok: true, commands: takeCommands(got.name), admin: db.admins.includes(got.name), blocked: (db.blocked || []).includes(got.name) });
   }
 
   // rename an account (auth by pin)
@@ -321,13 +370,51 @@ const server = http.createServer(async (req, res) => {
     return send(res, 404, { error: 'Message not found.' });
   }
 
-  // public: global leaderboard data
+  // public: global leaderboard data (+ market/goal state — one poll for everything).
+  // The envelope { rows, announcement, version } must stay: pre-cutover clients
+  // rely on it to detect the version change and force-reload into this game.
   if (url.pathname === '/api/leaderboard' && req.method === 'GET'){
     const rows = Object.entries(db.accounts).map(([name, a]) => {
       const s = statsOf(a.save);
-      return { name, all: s.all, playtime: s.playtime, peakRate: s.peakRate, rings: s.rings, longestSession: s.longestSession, legends: s.legends, battleWins: s.battleWins, teamWins: s.teamWins, followers: s.followers, lastSeen: a.lastSeen };
+      return { name, lifetime: s.lifetime, dm: s.dm, planets: s.planets, bestStreak: s.bestStreak, collection: s.collection,
+               contrib: num((goal().contributed || {})[name]), lastSeen: a.lastSeen };
     });
-    return send(res, 200, { rows, announcement: activeAnnouncement(), version: ver() });
+    const m = market(), g = goal();
+    return send(res, 200, { rows, announcement: activeAnnouncement(), version: ver(),
+      market: { ore: m.ore, ice: m.ice },
+      goal: { text: g.text, res: g.res, target: g.target, donated: totalDonated(g), boost: goalBoost() } });
+  }
+
+  // market: sell/buy ore or ice at the current server price (accounts only)
+  if (url.pathname === '/api/market/trade' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    const res_ = (b && b.res === 'ice') ? 'ice' : (b && b.res === 'ore') ? 'ore' : null;
+    const dir = (b && b.dir === 'buy') ? 'buy' : (b && b.dir === 'sell') ? 'sell' : null;
+    const amount = Math.floor(num(b && b.amount));
+    if (!res_ || !dir || amount <= 0) return send(res, 400, { error: 'Bad trade.' });
+    const m = market();
+    const price = m[res_].price;
+    const credits = Math.floor(amount * price);
+    // pressure: player sells push the price down, buys push it up (clamped)
+    const push = Math.min(0.1, amount / 1e6);
+    m.pressure[res_] = Math.max(-0.3, Math.min(0.3, (m.pressure[res_] || 0) + (dir === 'sell' ? push : -push)));
+    got.a.lastSeen = Date.now(); persist();
+    return send(res, 200, { ok: true, price, credits, dir, res: res_, amount });
+  }
+
+  // weekly goal: donate the goal resource (accounts only; client deducts locally)
+  if (url.pathname === '/api/goal/donate' && req.method === 'POST'){
+    const b = await readBody(req);
+    const got = auth(b);
+    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
+    const g = goal();
+    const amount = Math.floor(num(b && b.amount));
+    if (!amount || amount <= 0 || (b && b.res) !== g.res) return send(res, 400, { error: 'Bad donation.' });
+    g.contributed[got.name] = num(g.contributed[got.name]) + amount;
+    persist();
+    return send(res, 200, { ok: true, donated: totalDonated(g), target: g.target, mine: g.contributed[got.name] });
   }
 
   // owner: every account in the game
@@ -384,16 +471,19 @@ const server = http.createServer(async (req, res) => {
     // set leaderboard-rankable stats to chosen values
     if (b.cmd.set && typeof b.cmd.set === 'object'){
       cmd.set = {};
-      for (const k of ['all', 'peakRate', 'rings', 'playtime', 'longestSession', 'legends', 'battleWins', 'teamWins', 'followers']){
+      for (const k of ['credits', 'lifetime', 'ore', 'ice', 'fuel', 'dm', 'dmEarned', 'bestStreak']){
         if (k in b.cmd.set){ const v = num(b.cmd.set[k]); if (v >= 0) cmd.set[k] = v; }
       }
       if (!Object.keys(cmd.set).length) delete cmd.set;
-      else if (db.accounts[name].save && Array.isArray(db.accounts[name].save.worlds))
+      else if (db.accounts[name].save && typeof db.accounts[name].save === 'object')
         for (const k in cmd.set) db.accounts[name].save[k] = cmd.set[k];   // mirror so the board updates now
     }
     // reset wipes the stored save now AND queues it for a live session, but
-    // keeps the player's pet collection (pets are permanent).
-    if (cmd.reset){ const old = db.accounts[name].save; db.accounts[name].save = (old && old.pets) ? { pets: old.pets } : null; }
+    // keeps the permanent collection: crew, artifacts, tech, dark matter.
+    if (cmd.reset){
+      const old = db.accounts[name].save;
+      db.accounts[name].save = old ? { crew: old.crew || [], artifacts: old.artifacts || [], tech: old.tech || [], dm: num(old.dm), dmEarned: num(old.dmEarned) } : null;
+    }
     if (Object.keys(cmd).length) (db.commands[name] = db.commands[name] || []).push(cmd);
     persist();
     return send(res, 200, { ok: true });
@@ -411,76 +501,13 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
 
-  // roster: everyone's pets, for picking a trade partner and their pets
-  if (url.pathname === '/api/roster' && req.method === 'GET'){
-    const players = {};
-    for (const [name, a] of Object.entries(db.accounts)) players[name] = (a.save && a.save.pets) || {};
-    return send(res, 200, { players });
-  }
-
-  // teams: every account that has built a team, for real-player challenges.
-  // Raw player ids only — the client derives ratings from its own pool.
-  if (url.pathname === '/api/teams' && req.method === 'GET'){
-    const teams = [];
-    for (const [name, a] of Object.entries(db.accounts)){
-      const ids = (a.save && Array.isArray(a.save.roster)) ? a.save.roster.filter(Number.isInteger).slice(0, 32) : [];
-      if (ids.length) teams.push({ name, roster: ids, teamWins: num(a.save.teamWins), teamLosses: num(a.save.teamLosses), lastSeen: a.lastSeen });
-    }
-    return send(res, 200, { teams });
-  }
-
-  // current trades involving a player
-  if (url.pathname === '/api/trade/list' && req.method === 'GET'){
-    return send(res, 200, tradesFor(cleanName(url.searchParams.get('name'))));
-  }
-
-  // create a trade offer. The creator's 'give' items are escrowed client-side
-  // (already deducted) and recorded here so they can be refunded.
-  if (url.pathname === '/api/trade/create' && req.method === 'POST'){
-    const b = await readBody(req);
-    const got = auth(b);
-    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
-    const to = cleanName(b && b.to);
-    if (!to || !db.accounts[to]) return send(res, 400, { error: 'Unknown player.' });
-    if (to === got.name) return send(res, 400, { error: "You can't trade with yourself." });
-    const give = { pets: cleanPets(b.give && b.give.pets), money: Math.max(0, num(b.give && b.give.money)) };
-    const want = { pets: cleanPets(b.want && b.want.pets), money: Math.max(0, num(b.want && b.want.money)) };
-    if (!Object.keys(give.pets).length && !Object.keys(want.pets).length)
-      return send(res, 400, { error: 'A trade must include at least one pet.' });
-    const trade = { id: ++db.tradeSeq, from: got.name, to, give, want, at: Date.now() };
-    db.trades.push(trade);
-    if (db.trades.length > 500) db.trades = db.trades.slice(-500);
-    persist();
-    return send(res, 200, { ok: true, id: trade.id });
-  }
-
-  // accept / decline (recipient) or cancel (creator) a trade
-  if (url.pathname === '/api/trade/resolve' && req.method === 'POST'){
-    const b = await readBody(req);
-    const got = auth(b);
-    if (!got) return send(res, 401, { error: 'Wrong name or PIN.' });
-    const i = db.trades.findIndex(t => t.id === num(b && b.id));
-    if (i < 0) return send(res, 404, { error: 'That trade is no longer available.' });
-    const t = db.trades[i], action = b && b.action;
-    if (action === 'accept'){
-      if (got.name !== t.to) return send(res, 403, { error: 'Not your trade to accept.' });
-      queueTrade(t.from, t.want.pets, t.want.money);   // creator receives what they wanted (acceptor gave it)
-      db.trades.splice(i, 1); persist();
-      return send(res, 200, { ok: true, deliver: t.give });   // acceptor receives the offered items
-    }
-    if (action === 'decline'){
-      if (got.name !== t.to) return send(res, 403, { error: 'Not your trade.' });
-      queueTrade(t.from, t.give.pets, t.give.money);   // refund the creator's escrow
-      db.trades.splice(i, 1); persist();
-      return send(res, 200, { ok: true });
-    }
-    if (action === 'cancel'){
-      if (got.name !== t.from) return send(res, 403, { error: 'Not your trade.' });
-      queueTrade(t.from, t.give.pets, t.give.money);   // refund the creator's escrow
-      db.trades.splice(i, 1); persist();
-      return send(res, 200, { ok: true });
-    }
-    return send(res, 400, { error: 'Unknown action.' });
+  // owner: force every open client to reload (e.g. after a hosting hiccup)
+  if (url.pathname === '/api/admin/bump' && req.method === 'POST'){
+    if (!currentAdminKey()) return send(res, 503, { error: 'Set the ADMIN_KEY variable on the server first.' });
+    if (!isOwner(req)) return send(res, 401, { error: 'wrong passcode' });
+    if (!ownerAcct(req)) return send(res, 403, { error: 'Only the owner account can use the admin panel.' });
+    db.verBump = (db.verBump || 0) + 1; persist();
+    return send(res, 200, { ok: true, version: ver() });
   }
 
   send(res, 404, { error: 'not found' });
